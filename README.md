@@ -35,9 +35,30 @@ Click the Binder badge above to launch an interactive environment in your browse
 
 ```bash
 # Clone the repository
-git clone https://github.com/ihmeuw/idd-models-and-data.git
-cd idd-models-and-data
+git clone https://github.com/ihmeuw/idd-figures.git
+cd idd-figures
 
 # Create and activate the conda environment
 conda env create -f environment.yml
-conda activate idd-mad
+conda activate idd-figures
+```
+
+### Option 2: Install as a Python package (from GitHub)
+
+You can install and use `idd_figures` in other projects/environments:
+
+```bash
+pip install git+https://github.com/ihmeuw/idd-figures.git
+```
+
+Then, in your Python code:
+
+```python
+from idd_figures import plot_map
+
+def get_plot_data(plot_dict):
+    # User-defined logic to prepare plot_dict for plotting
+    return plot_dict
+
+plot_map(plot_dict, get_plot_data)
+```
