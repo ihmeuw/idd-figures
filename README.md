@@ -1,33 +1,42 @@
-# IDD Models and Data
+# IDD Figures
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ihmeuw/idd-models-and-data/HEAD)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![R](https://img.shields.io/badge/r-4.3-blue.svg)](https://www.r-project.org/)
 [![Poetry](https://img.shields.io/badge/poetry-managed-blue.svg)](https://python-poetry.org/)
 
-Repository for IDD models and data analysis, supporting both Python and R workflows.
+Repository for IDD figures and interactive plotting tools in Python.
 
 ## 🚀 Quick Start
 
-### Launch Interactive Apps
-**👆 Click the Binder badge above, then open [`app_launcher.ipynb`](app_launcher.ipynb)**
+### Launch Interactive Shiny App
 
-This repository includes interactive Shiny applications for epidemiological modeling:
+You can launch an interactive Python Shiny app to explore map figures with sliders and dropdowns for plot options (e.g., number of bins, colormap):
 
-- **📊 Multi-Tab Dashboard** - Complete dashboard with multiple analysis tabs
-- **🔬 SIR Model Demo** - Interactive demonstration of SIR epidemiological model  
-- **⚖️ Model Comparison** - Compare SIR, SEIR, and SEIRS models side by side
+#### 1. Install dependencies
 
-### How to Use:
-1. **Click the Binder badge** to launch the environment
-2. **Open `app_launcher.ipynb`** in the file browser
-3. **Run the cells** to see available apps
-4. **Select and launch** any app with a single click
-5. **Access via `/proxy/8000/`** (replace `/lab` in your browser URL)
+Make sure your environment includes:
+- shiny
+- geopandas
+- matplotlib
+- numpy
 
-## Quick Start with Binder
+If using conda:
+```bash
+conda install -c conda-forge shiny geopandas matplotlib numpy
+```
+Or with pip:
+```bash
+pip install shiny geopandas matplotlib numpy
+```
 
-Click the Binder badge above to launch an interactive environment in your browser with all dependencies pre-installed.
+#### 2. Run the app
+
+```bash
+python src/idd_figures/shiny_app.py
+```
+
+This will start a local Shiny server. Open the provided URL in your browser to interact with the app.
+
+---
 
 ## Local Installation
 

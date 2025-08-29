@@ -10,6 +10,14 @@ dependencies:
   - xarray
   - jupyter
   - ipykernel
+  - geopandas
+  - rasterio
+  - cartopy
+  - shapely
+  - pyproj
+  - scipy
+  - scikit-image
+  - scikit-learn
   - pip
   - pip:
     - shiny
