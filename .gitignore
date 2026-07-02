@@ -60,3 +60,13 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Path safety — the only file with absolute paths; never commit (STANDARDS §Path safety)
+paths.yaml
+
+# Generated config — keep the directory, ignore its contents
+config/*
+!config/.gitkeep
+
+# Claude Code working files — local-only, not part of git history
+.claude/

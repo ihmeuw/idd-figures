@@ -1,0 +1,10 @@
+# Copy this file to paths.yaml (gitignored) and edit the values for your machine.
+# paths.yaml is the ONLY file in this repo allowed to contain absolute paths.
+# The placeholder values below use /your/cluster/path/... by design so they do
+# not trip the no-absolute-paths pre-commit guard.
+
+# Root directory holding admin shapefiles (e.g. LBD standard admin shapefiles).
+admin_shapefile_root: /your/cluster/path/admin_shapefiles
+
+# Root directory holding precomputed figure inputs (bins dictionaries, etc.).
+figure_inputs_root: /your/cluster/path/figure_inputs

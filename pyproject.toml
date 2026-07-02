@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "idd-figures"
 version = "0.1.0"
-description = "IDD Models and Data Analysis Repository"
-authors = ["Your Name <your.email@example.com>"]
+description = "Publication-quality figure templates and shared plotting functions for IDD work"
+authors = ["Bobby Reiner"]
 readme = "README.md"
 packages = [{include = "idd_figures", from = "src"}]
 
@@ -14,25 +14,54 @@ matplotlib = "^3.8.0"
 shiny = "^0.6.0"
 xarray = "^2023.10.0"
 jupyter = "^1.0.0"
-ipykernel = "^6.25.0"
+ipykernel = ">=7.0.0,<8.0.0"  # >=7 so the conda env is selectable as a Jupyter kernel
+# NOTE: cartopy/geopandas are intentionally NOT declared here. The heavy
+# compiled geo stack is provided by conda (environment.yml); declaring it in
+# poetry risks GDAL ABI conflicts in the conda env. See .claude/DECISIONS.md.
+# jobmon_installer_ihme is intentionally omitted (figures library, never runs
+# Slurm; internal-only dep would break public CI). See .claude/DECISIONS.md.
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4.0"
-black = "^23.7.0"
-flake8 = "^6.0.0"
-mypy = "^1.5.0"
-pre-commit = "^3.4.0"
+pytest = "*"
+pytest-cov = "*"
+ruff = "*"
+mypy = "*"
+pre-commit = "*"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.black]
-line-length = 88
-target-version = ['py312']
+[tool.ruff]
+line-length = 100
+src = ["src"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",   # trailing comma — formatter handles
+    "ISC001",   # implicit string concat — formatter handles
+    "ANN",      # type hints — mypy handles
+    "D",        # docstrings — too strict for research code
+    "E501",     # line length — formatter handles
+    "RET505",   # else after return — sometimes clearer
+    "T201",     # print() — beeswarm solver uses intentional verbose logging
+    "FBT002",   # boolean positional defaults — pervasive in plotting APIs
+    "RUF001",   # ambiguous unicode (en-dash in bin labels) — intentional
+    "N803",     # arg names like N_seq — domain naming
+    "TRY003",   # long messages in raise — fine for research code
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["INP001", "T201"]
+"tests/**" = ["S101", "ARG", "S105", "INP001", "PLR2004"]
 
 [tool.mypy]
 python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
