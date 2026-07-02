@@ -1,36 +1,48 @@
-[tool.poetry]
+[project]
 name = "idd-figures"
 version = "0.1.0"
 description = "Publication-quality figure templates and shared plotting functions for IDD work"
-authors = ["Bobby Reiner"]
+authors = [{ name = "Bobby Reiner" }]
 readme = "README.md"
-packages = [{include = "idd_figures", from = "src"}]
-
-[tool.poetry.dependencies]
-python = "^3.12"
-numpy = "^1.26.0"
-pandas = "^2.1.0"
-matplotlib = "^3.8.0"
-shiny = "^0.6.0"
-xarray = "^2023.10.0"
-jupyter = "^1.0.0"
-ipykernel = ">=7.0.0,<8.0.0"  # >=7 so the conda env is selectable as a Jupyter kernel
-# NOTE: cartopy/geopandas are intentionally NOT declared here. The heavy
-# compiled geo stack is provided by conda (environment.yml); declaring it in
-# poetry risks GDAL ABI conflicts in the conda env. See .claude/DECISIONS.md.
+requires-python = ">=3.12,<4"
+dependencies = [
+    # Floors = verified-needed; no speculative upper caps — cap only at a
+    # version that is tested and actually breaks, at that known number.
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "matplotlib>=3.8",
+]
 # jobmon_installer_ihme is intentionally omitted (figures library, never runs
 # Slurm; internal-only dep would break public CI). See .claude/DECISIONS.md.
 
-[tool.poetry.group.dev.dependencies]
-pytest = "*"
-pytest-cov = "*"
-ruff = "*"
-mypy = "*"
-pre-commit = "*"
+[project.optional-dependencies]
+# Heavy deps are confined to specific submodules (painters/maps, layouts/maps,
+# composition, io, paths) — consumers opt in to what they use.
+maps = [
+    "cartopy>=0.25",
+    "geopandas>=1.1",
+    "shapely>=2.1",
+]
+ternary = ["mpltern>=1.0"]
+thumbnails = ["pillow>=11"]
+config = ["pyyaml>=6"]
+all = ["idd-figures[maps,ternary,thumbnails,config]"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "ipykernel>=7",  # >=7 so the conda env is selectable as a Jupyter kernel
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+# uv_build is 0.x; upstream promises compatibility only within a minor, so this
+# bracket reflects a known constraint, not a speculative cap. Build-time only.
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
@@ -56,6 +68,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["INP001", "T201"]
 "tests/**" = ["S101", "ARG", "S105", "INP001", "PLR2004"]
+"**/__init__.py" = ["ERA001"]  # empty __init__s document the import convention in comments
 
 [tool.mypy]
 python_version = "3.12"

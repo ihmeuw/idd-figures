@@ -1,73 +1,51 @@
 # IDD Figures
 
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Poetry](https://img.shields.io/badge/poetry-managed-blue.svg)](https://python-poetry.org/)
+[![uv](https://img.shields.io/badge/uv-managed-blue.svg)](https://docs.astral.sh/uv/)
 
-Repository for IDD figures and interactive plotting tools in Python.
+Shared, publication-quality figure library for IDD work: painters (lines, scatter,
+trajectories, bars, composition, maps, legends), a GridSpec layout engine, and
+plotting primitives (bins, colors, palettes, numbers, style, frames, io).
 
-## 🚀 Quick Start
+## Installation
 
-### Launch Interactive Shiny App
+### Cluster / development (conda interpreter + uv)
 
-You can launch an interactive Python Shiny app to explore map figures with sliders and dropdowns for plot options (e.g., number of bins, colormap):
-
-#### 1. Install dependencies
-
-Make sure your environment includes:
-- shiny
-- geopandas
-- matplotlib
-- numpy
-
-If using conda:
-```bash
-conda install -c conda-forge shiny geopandas matplotlib numpy
-```
-Or with pip:
-```bash
-pip install shiny geopandas matplotlib numpy
-```
-
-#### 2. Run the app
+conda provides only the Python interpreter; uv installs and manages every Python
+dependency from `pyproject.toml` / `uv.lock`:
 
 ```bash
-python src/idd_figures/shiny_app.py
-```
-
-This will start a local Shiny server. Open the provided URL in your browser to interact with the app.
-
----
-
-## Local Installation
-
-### Option 1: Using Conda (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/ihmeuw/idd-figures.git
-cd idd-figures
-
-# Create and activate the conda environment
-conda env create -f environment.yml
+conda env create -f environment.yml    # interpreter-only env
 conda activate idd-figures
+python -m pip install uv               # per-env uv, same idiom as pip install poetry
+UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --all-extras
 ```
 
-### Option 2: Install as a Python package (from GitHub)
+### As a dependency (pip)
 
-You can install and use `idd_figures` in other projects/environments:
+Core installs only numpy/pandas/matplotlib. Heavy dependencies are opt-in extras:
+`maps` (cartopy, geopandas, shapely), `ternary` (mpltern), `thumbnails` (pillow),
+`config` (pyyaml), or `all`.
 
 ```bash
-pip install git+https://github.com/ihmeuw/idd-figures.git
+pip install "idd-figures[maps] @ git+https://github.com/ihmeuw/idd-figures.git"
 ```
 
-Then, in your Python code:
+## Usage
+
+Consumers use submodule imports; the top-level package imports nothing heavy:
 
 ```python
-from idd_figures import plot_map
+from idd_figures.lib import example_data as ed
+from idd_figures.lib.colors import binned_colormap
+from idd_figures.lib.painters.maps import basemap_painter, choropleth_painter
+```
 
-def get_plot_data(plot_dict):
-    # User-defined logic to prepare plot_dict for plotting
-    return plot_dict
+Painters draw on an existing `Axes` and return it; layouts own the `Figure`/`GridSpec`.
+See `notebooks/vignettes/` for worked examples (painters, layouts, maps).
 
-plot_map(plot_dict, get_plot_data)
+## Tests
+
+```bash
+python -m pytest
 ```

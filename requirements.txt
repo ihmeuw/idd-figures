@@ -1,3 +1,0 @@
-shiny
-geopandas
-matplotlib
