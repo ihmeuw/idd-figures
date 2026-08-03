@@ -17,12 +17,13 @@ from __future__ import annotations
 import numpy as np
 
 __all__ = [
-    "get_multiplier",
+    "compact",
     "count_scale",
-    "shared_scale",
-    "resolve_scale",
-    "smart_ui_format",
     "format_value_ui",
+    "get_multiplier",
+    "resolve_scale",
+    "shared_scale",
+    "smart_ui_format",
 ]
 
 # override_multiplier -> (multiplier, suffix). The key is the divisor (= 1 / multiplier),
@@ -41,7 +42,25 @@ _OVERRIDE_TIERS = {
 }
 
 
-def get_multiplier(number, *, scale=2, allow_nonstandard_units=False, override_multiplier=None):
+def compact(value):
+    """Scalar k/M tick notation: ``5000 -> "5k"``, ``2_500_000 -> "2.5M"``, ``350 -> "350"``.
+
+    The drop-in for per-tick GDP/count labels on log axes (adopted from
+    idd-lsae-hdi's ``_tick_label``, which was thousands-only and ignored
+    negatives — this one keys tiers on ``abs(value)``). Distinct from
+    :func:`smart_ui_format` (Lancet prose style) and ``bins.map_bin_labels``
+    (range-over-edges labels); the three presentations coexist deliberately.
+    """
+    kilo, mega = 1e3, 1e6
+    v = float(value)
+    if abs(v) >= mega:
+        return f"{v / mega:g}M"
+    if abs(v) >= kilo:
+        return f"{v / kilo:g}k"
+    return f"{v:g}"
+
+
+def get_multiplier(number, *, scale=2, allow_nonstandard_units=False, override_multiplier=None):  # noqa: C901, PLR0911 -- explicit tier ladder (documented legacy port); tracked debt
     """Display multiplier + label suffix for a magnitude (auto, by magnitude).
 
     Returns ``(multiplier, suffix)`` so that ``value * multiplier`` lands on a
@@ -91,8 +110,12 @@ def get_multiplier(number, *, scale=2, allow_nonstandard_units=False, override_m
 
 def count_scale(max_value, *, scale=2, allow_nonstandard_units=False, override_multiplier=None):
     """Multiplier + suffix for a single magnitude (thin alias of get_multiplier)."""
-    return get_multiplier(max_value, scale=scale, allow_nonstandard_units=allow_nonstandard_units,
-                          override_multiplier=override_multiplier)
+    return get_multiplier(
+        max_value,
+        scale=scale,
+        allow_nonstandard_units=allow_nonstandard_units,
+        override_multiplier=override_multiplier,
+    )
 
 
 def shared_scale(values, *, scale=2, allow_nonstandard_units=False):
@@ -117,7 +140,7 @@ def resolve_scale(value_scale, values):
       * a ``(multiplier, suffix)`` tuple -> used verbatim (a layout's shared scale);
       * a bare number -> used as the multiplier with no suffix.
     """
-    if value_scale is None or value_scale == 1 or value_scale == 1.0:
+    if value_scale is None or value_scale in (1, 1.0):
         return 1.0, ""
     if isinstance(value_scale, tuple):
         return value_scale
@@ -126,7 +149,7 @@ def resolve_scale(value_scale, values):
     return float(value_scale), ""
 
 
-def smart_ui_format(
+def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatter ported whole; splitting it is tracked debt
     val,
     *,
     units=False,
@@ -156,10 +179,10 @@ def smart_ui_format(
     use_millions = use_billions = False
     if multiplier_adjustment and not percentage and not rate:
         check = reference_val if reference_val is not None else original
-        if abs(check) >= 1e9:
+        if abs(check) >= 1e9:  # noqa: PLR2004 -- the billions tier boundary IS the number
             use_billions = True
             val /= 1e9
-        elif abs(check) >= 1e6:
+        elif abs(check) >= 1e6:  # noqa: PLR2004 -- the millions tier boundary IS the number
             use_millions = True
             val /= 1e6
 
@@ -173,7 +196,7 @@ def smart_ui_format(
         rounded = np.round(val / step) * step
         if rounded != 0:
             power = int(np.floor(np.log10(abs(rounded))))
-        if power >= 2:
+        if power >= 2:  # noqa: PLR2004 -- 3-sig-fig decimal ladder, not a tunable
             dec = 0
         elif power >= 1:
             dec = 1
@@ -185,7 +208,7 @@ def smart_ui_format(
 
     formatted = formatted.replace(".", "·")
     int_part = formatted.split("·")[0].lstrip("-")
-    if len(int_part) > 4:  # group thousands with a thin space (not for 4-digit years)
+    if len(int_part) > 4:  # noqa: PLR2004 -- group thousands with a thin space (not for 4-digit years)
         parts = formatted.split("·")
         integer, sign = parts[0], ""
         if integer.startswith("-"):
@@ -212,7 +235,7 @@ def smart_ui_format(
     return formatted
 
 
-def format_value_ui(
+def format_value_ui(  # noqa: PLR0913 -- presentation switches mirror smart_ui_format's; tracked debt
     mean,
     lower,
     upper,
@@ -230,11 +253,19 @@ def format_value_ui(
         mean, units=units, percentage=percentage, rate=rate, small_number=small_number
     )
     lf = smart_ui_format(
-        lower, units=False, reference_val=mean, percentage=percentage, rate=rate,
+        lower,
+        units=False,
+        reference_val=mean,
+        percentage=percentage,
+        rate=rate,
         small_number=small_number,
     )
     uf = smart_ui_format(
-        upper, units=False, reference_val=mean, percentage=percentage, rate=rate,
+        upper,
+        units=False,
+        reference_val=mean,
+        percentage=percentage,
+        rate=rate,
         small_number=small_number,
     )
     if lower < 0 < upper:

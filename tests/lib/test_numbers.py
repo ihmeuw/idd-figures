@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from idd_figures.lib.numbers import (
+    compact,
     count_scale,
     format_value_ui,
     get_multiplier,
@@ -102,3 +103,12 @@ class TestSmartUiFormat:
 
 def test_format_value_ui():
     assert format_value_ui(1.5, 1.2, 1.8) == "1·50 (95% UI 1·20–1·80)"
+
+
+def test_compact_tick_notation():
+    assert compact(350) == "350"
+    assert compact(5000) == "5k"
+    assert compact(12_500) == "12.5k"
+    assert compact(2_500_000) == "2.5M"
+    assert compact(-5000) == "-5k"  # negatives tier on abs(value), unlike the lsae original
+    assert compact(0) == "0"

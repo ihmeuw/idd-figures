@@ -5,10 +5,24 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from idd_figures.lib.colors import (
     binned_colormap,
+    clipped_diverging_cmap,
     diverging_colors,
     get_colors,
     signed_diverging_cmap,
 )
+
+
+def test_clipped_diverging_removes_the_middle_band():
+    cmap = clipped_diverging_cmap()  # default: cut the middle 25% of 256 samples
+    assert isinstance(cmap, ListedColormap)
+    assert cmap.N == 192
+    lo_side, hi_side = cmap(0.49), cmap(0.51)  # hard seam: neighbours differ sharply
+    assert abs(lo_side[0] - hi_side[0]) + abs(lo_side[2] - hi_side[2]) > 0.2
+
+
+def test_clipped_diverging_rejects_off_centre_cuts():
+    with pytest.raises(ValueError, match="symmetric"):
+        clipped_diverging_cmap(lo=0.30, hi=0.60)
 
 
 def test_get_colors_count():
@@ -75,4 +89,6 @@ def test_remove_middle_odd_white_centre_symmetric_per_side():
 
 def test_remove_middle_even_with_white_zero_raises():
     with pytest.raises(ValueError, match="centre bin"):
-        binned_colormap([-2, -1, 0, 1, 2], diverging=True, remove_middle=True, force_white_zero=True)
+        binned_colormap(
+            [-2, -1, 0, 1, 2], diverging=True, remove_middle=True, force_white_zero=True
+        )

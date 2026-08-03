@@ -1,11 +1,16 @@
 """Shared palettes, leaning on ColorBrewer (matplotlib ships the Brewer maps).
 
-Two things live here:
+Three things live here:
 
 * ``brewer`` / ``categorical`` — convenient access to ColorBrewer palettes, since
   we use them heavily.
-* The GBD super-region colour map — a neutral ColorBrewer default (NOT an official
-  GBD palette). Repos override by passing their own ``colors=``; nothing is forced.
+* The GBD super-region colour map — the interim house standard (adopted from
+  idd-lsae-hdi, 2026-08-02; see integrations/idd-lsae-hdi/plan.md). Hex STRINGS
+  by design: strings survive plotly/HTML payloads where RGB tuples break.
+* Neutral greys for de-emphasised series and start/end median markers.
+
+Palettes are repo-owned in general — pass your own ``colors=`` to override;
+nothing is forced.
 """
 
 from __future__ import annotations
@@ -15,6 +20,9 @@ import matplotlib as mpl
 __all__ = [
     "GBD_SUPER_REGIONS",
     "GBD_SUPER_REGION_COLORS",
+    "GREY",
+    "MED_DARK",
+    "MED_LIGHT",
     "brewer",
     "categorical",
 ]
@@ -66,8 +74,23 @@ def categorical(keys, *, palette="Set2"):
     return {k: base[i % len(base)] for i, k in enumerate(keys)}
 
 
-#: Default GBD super-region colours. NOT an official GBD palette — a neutral, reproducible
-#: ColorBrewer mapping so figures have sensible defaults out of the box. Override per
-#: repo/figure with your own ``colors=``; swap the palette here if a house GBD colour
-#: standard is adopted.
-GBD_SUPER_REGION_COLORS = categorical(GBD_SUPER_REGIONS, palette="Dark2")
+#: House GBD super-region colours (interim standard until an official GBD palette is
+#: adopted). Hand-chosen with semantics — High-income is a deliberately recessive grey,
+#: Sub-Saharan Africa a salient blue — adopted from idd-lsae-hdi (Bobby ruling,
+#: 2026-08-02; previously a positional ColorBrewer Dark2 mapping). Hex strings on
+#: purpose. Override per repo/figure with your own ``colors=``.
+GBD_SUPER_REGION_COLORS = {
+    "Central Europe, Eastern Europe, and Central Asia": "#7B5EA7",
+    "High-income": "#999999",
+    "Latin America and Caribbean": "#D6604D",
+    "North Africa and Middle East": "#E8A33D",
+    "South Asia": "#8CC63F",
+    "Southeast Asia, East Asia, and Oceania": "#1B7837",
+    "Sub-Saharan Africa": "#2C7FB8",
+}
+
+#: Neutral companions (also from the idd-lsae-hdi adoption): de-emphasised series grey,
+#: and the dark/light pair for start-year / end-year median markers.
+GREY = "#BDBDBD"
+MED_DARK = "#222222"
+MED_LIGHT = "#C8C8C8"

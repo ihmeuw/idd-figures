@@ -11,7 +11,13 @@ import matplotlib as mpl
 import matplotlib.colors as mcolors
 import numpy as np
 
-__all__ = ["binned_colormap", "diverging_colors", "get_colors", "signed_diverging_cmap"]
+__all__ = [
+    "binned_colormap",
+    "clipped_diverging_cmap",
+    "diverging_colors",
+    "get_colors",
+    "signed_diverging_cmap",
+]
 
 
 def get_colors(n_bins, cmap_name="Reds"):
@@ -44,6 +50,31 @@ def signed_diverging_cmap():
             (1.0, "#67001f"),
         ],
     )
+
+
+def clipped_diverging_cmap(name="RdYlBu", *, lo=0.375, hi=0.625, n=256):
+    """CONTINUOUS diverging colormap with the middle band removed (hard seam at 0.5).
+
+    Samples ``name`` at ``n`` steps and deletes the ``[lo, hi)`` FRACTION of the
+    ramp (defaults cut the washed-out middle 25%), so under symmetric limits
+    (``vmin=-x, vmax=+x``) the visible seam lands exactly on zero and the two
+    sides never blur. The continuous counterpart of ``binned_colormap(...,
+    remove_middle=True)``; adopted from idd-lsae-hdi's ``clipped_diverging_cmap``
+    with the 256-sample indices re-expressed as fractions.
+
+    ``lo`` and ``hi`` must be symmetric about 0.5 (``lo == 1 - hi``) — an
+    off-centre cut would silently move the seam off zero.
+    """
+    if not 0 <= lo < hi <= 1:
+        msg = f"need 0 <= lo < hi <= 1, got lo={lo}, hi={hi}"
+        raise ValueError(msg)
+    if abs(lo - (1 - hi)) > 1e-9:  # noqa: PLR2004 -- float-equality tolerance, not a tunable
+        msg = f"lo/hi must be symmetric about 0.5 (lo == 1 - hi), got lo={lo}, hi={hi}"
+        raise ValueError(msg)
+    base = mpl.colormaps[name]
+    colors = base(np.linspace(0, 1, n))
+    keep = np.vstack([colors[: round(lo * n)], colors[round(hi * n) :]])
+    return mcolors.ListedColormap(keep, name=f"{name}_clipped")
 
 
 def binned_colormap(  # noqa: PLR0913 — orthogonal keyword-only colormap options; grouping them would only add ceremony

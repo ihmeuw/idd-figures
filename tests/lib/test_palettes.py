@@ -5,6 +5,9 @@ import pytest
 from idd_figures.lib.palettes import (
     GBD_SUPER_REGION_COLORS,
     GBD_SUPER_REGIONS,
+    GREY,
+    MED_DARK,
+    MED_LIGHT,
     brewer,
     categorical,
 )
@@ -13,6 +16,18 @@ from idd_figures.lib.palettes import (
 def test_gbd_colors_cover_all_super_regions():
     assert set(GBD_SUPER_REGION_COLORS) == set(GBD_SUPER_REGIONS)
     assert len(GBD_SUPER_REGIONS) == 7
+
+
+def test_gbd_colors_are_the_adopted_lsae_hex_strings():
+    # house interim standard (2026-08-02): hex STRINGS with hand-chosen semantics
+    assert all(isinstance(v, str) and v.startswith("#") for v in GBD_SUPER_REGION_COLORS.values())
+    assert GBD_SUPER_REGION_COLORS["High-income"] == "#999999"  # deliberately recessive
+    assert GBD_SUPER_REGION_COLORS["Sub-Saharan Africa"] == "#2C7FB8"  # salient blue
+    assert len(set(GBD_SUPER_REGION_COLORS.values())) == 7  # all distinct
+
+
+def test_neutral_companions_exist():
+    assert (GREY, MED_DARK, MED_LIGHT) == ("#BDBDBD", "#222222", "#C8C8C8")
 
 
 def test_brewer_qualitative_full_and_truncated():
