@@ -60,7 +60,7 @@ def compact(value):
     return f"{v:g}"
 
 
-def get_multiplier(number, *, scale=2, allow_nonstandard_units=False, override_multiplier=None):  # noqa: C901, PLR0911 -- explicit tier ladder (documented legacy port); tracked debt
+def get_multiplier(number, *, scale=2, allow_nonstandard_units=False, override_multiplier=None):  # noqa: PLR0911 -- explicit tier ladder (documented legacy port); tracked debt
     """Display multiplier + label suffix for a magnitude (auto, by magnitude).
 
     Returns ``(multiplier, suffix)`` so that ``value * multiplier`` lands on a
@@ -149,7 +149,7 @@ def resolve_scale(value_scale, values):
     return float(value_scale), ""
 
 
-def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatter ported whole; splitting it is tracked debt
+def smart_ui_format(  # noqa: C901, PLR0912, PLR0915 -- Lancet formatter ported whole; splitting it is tracked debt
     val,
     *,
     units=False,
@@ -179,10 +179,10 @@ def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatte
     use_millions = use_billions = False
     if multiplier_adjustment and not percentage and not rate:
         check = reference_val if reference_val is not None else original
-        if abs(check) >= 1e9:  # noqa: PLR2004 -- the billions tier boundary IS the number
+        if abs(check) >= 1e9:
             use_billions = True
             val /= 1e9
-        elif abs(check) >= 1e6:  # noqa: PLR2004 -- the millions tier boundary IS the number
+        elif abs(check) >= 1e6:
             use_millions = True
             val /= 1e6
 
@@ -196,7 +196,7 @@ def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatte
         rounded = np.round(val / step) * step
         if rounded != 0:
             power = int(np.floor(np.log10(abs(rounded))))
-        if power >= 2:  # noqa: PLR2004 -- 3-sig-fig decimal ladder, not a tunable
+        if power >= 2:
             dec = 0
         elif power >= 1:
             dec = 1
@@ -208,7 +208,7 @@ def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatte
 
     formatted = formatted.replace(".", "·")
     int_part = formatted.split("·")[0].lstrip("-")
-    if len(int_part) > 4:  # noqa: PLR2004 -- group thousands with a thin space (not for 4-digit years)
+    if len(int_part) > 4:
         parts = formatted.split("·")
         integer, sign = parts[0], ""
         if integer.startswith("-"):
@@ -235,7 +235,7 @@ def smart_ui_format(  # noqa: C901, PLR0912, PLR0913, PLR0915 -- Lancet formatte
     return formatted
 
 
-def format_value_ui(  # noqa: PLR0913 -- presentation switches mirror smart_ui_format's; tracked debt
+def format_value_ui(
     mean,
     lower,
     upper,

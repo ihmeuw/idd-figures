@@ -10,7 +10,10 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
-        additional_dependencies: []
+        additional_dependencies: [types-PyYAML]  # paths.py loads paths.yaml
+        # config-level [tool.mypy] exclude does NOT apply to files pre-commit
+        # passes explicitly — the quarantine must live here too
+        exclude: ^(attic/|src/idd_figures/idd_beeswarm\.py)
 
   - repo: https://github.com/kynan/nbstripout
     rev: 0.7.1

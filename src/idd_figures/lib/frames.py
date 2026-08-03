@@ -13,9 +13,6 @@ def panel_slice(df, selection):
     """
     mask = None
     for col, val in selection.items():
-        if isinstance(val, (list, tuple, set)):
-            m = df[col].isin(list(val))
-        else:
-            m = df[col] == val
+        m = df[col].isin(list(val)) if isinstance(val, (list, tuple, set)) else df[col] == val
         mask = m if mask is None else (mask & m)
     return df if mask is None else df[mask]

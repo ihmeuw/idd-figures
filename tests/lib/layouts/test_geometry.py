@@ -66,13 +66,20 @@ def test_solved_grid_realises_exact_inches():
     h_map1 = map_row_height(fig_w, margins=MARGINS, ncols=1, aspect=aspect)
     fig_h, ratios = solve_figure([h_maps3, h_bar, h_map1], margins=MARGINS, hspace=hspace)
 
-    row3 = grid((1, 3), [cell((0, j), paint(_empty, None), name=f"p{j}") for j in range(3)],
-                wspace=wspace)
-    spec = grid((3, 1), [
-        cell((0, 0), row3),
-        cell((1, 0), paint(_empty, None), name="bar"),
-        cell((2, 0), paint(_empty, None), name="wide"),
-    ], height_ratios=ratios, margins=MARGINS, hspace=hspace)
+    row3 = grid(
+        (1, 3), [cell((0, j), paint(_empty, None), name=f"p{j}") for j in range(3)], wspace=wspace
+    )
+    spec = grid(
+        (3, 1),
+        [
+            cell((0, 0), row3),
+            cell((1, 0), paint(_empty, None), name="bar"),
+            cell((2, 0), paint(_empty, None), name="wide"),
+        ],
+        height_ratios=ratios,
+        margins=MARGINS,
+        hspace=hspace,
+    )
     fig = panel_grid(spec, figsize=(fig_w, fig_h))
 
     def inches(name):
@@ -81,7 +88,9 @@ def test_solved_grid_realises_exact_inches():
 
     for j in range(3):
         w, h = inches(f"p{j}")
-        assert w == pytest.approx(panel_width(fig_w, margins=MARGINS, ncols=3, wspace=wspace), abs=1e-9)
+        assert w == pytest.approx(
+            panel_width(fig_w, margins=MARGINS, ncols=3, wspace=wspace), abs=1e-9
+        )
         assert h == pytest.approx(h_maps3, abs=1e-9)
         assert h / w == pytest.approx(aspect, abs=1e-9)  # the fixed-aspect panel FITS its box
 

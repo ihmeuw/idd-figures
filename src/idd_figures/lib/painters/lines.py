@@ -77,21 +77,31 @@ def lines_panel(
         order = hue_order if hue_order is not None else sorted(df[hue].dropna().unique())
         series = [(s, df[df[hue] == s]) for s in order]
 
-    for s, g in series:
-        if len(g) == 0:
+    for s, g_raw in series:
+        if len(g_raw) == 0:
             continue
-        g = g.sort_values(x)
+        g = g_raw.sort_values(x)
         color = _per(colors, s)
         lab = labels.get(s, s) if isinstance(labels, dict) else labels
         if show_ci and lo and hi and g[lo].notna().any():
             ax.fill_between(
-                g[x], g[lo] * scale, g[hi] * scale,
-                color=_per(band_color, s) or color, alpha=_per(band_alpha, s), lw=0,
+                g[x],
+                g[lo] * scale,
+                g[hi] * scale,
+                color=_per(band_color, s) or color,
+                alpha=_per(band_alpha, s),
+                lw=0,
             )
         ax.plot(
-            g[x], g[value] * scale, color=color, lw=_per(lw, s),
-            linestyle=_per(linestyle, s) or "-", alpha=_per(alpha, s),
-            marker=_per(marker, s), markersize=_per(markersize, s), label=lab,
+            g[x],
+            g[value] * scale,
+            color=color,
+            lw=_per(lw, s),
+            linestyle=_per(linestyle, s) or "-",
+            alpha=_per(alpha, s),
+            marker=_per(marker, s),
+            markersize=_per(markersize, s),
+            label=lab,
         )
 
     if anchor is not None:

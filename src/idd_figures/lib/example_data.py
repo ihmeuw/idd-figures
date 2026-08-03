@@ -13,17 +13,17 @@ import numpy as np
 import pandas as pd
 
 __all__ = [
-    "make_timeseries_df",
-    "make_forecast_panel_df",
-    "make_scatter_df",
-    "make_left_behind_df",
-    "make_trajectory_df",
-    "make_dispersion_stats",
-    "make_composition_df",
-    "make_admin_polygons",
-    "make_admin0_polygons",
-    "make_raster",
     "make_admin0_field",
+    "make_admin0_polygons",
+    "make_admin_polygons",
+    "make_composition_df",
+    "make_dispersion_stats",
+    "make_forecast_panel_df",
+    "make_left_behind_df",
+    "make_raster",
+    "make_scatter_df",
+    "make_timeseries_df",
+    "make_trajectory_df",
 ]
 
 
@@ -39,8 +39,9 @@ def make_timeseries_df(*, n_series=4, year_start=2000, year_end=2050, seed=0):
         value = level + trend * (years - year_start) + noise
         half = 4 + 0.05 * np.abs(value)
         for yr, v, h in zip(years, value, half, strict=True):
-            rows.append({"series": f"series_{s}", "year_id": yr, "value": v,
-                         "lo": v - h, "hi": v + h})
+            rows.append(
+                {"series": f"series_{s}", "year_id": yr, "value": v, "lo": v - h, "hi": v + h}
+            )
     return pd.DataFrame(rows)
 
 
@@ -62,9 +63,18 @@ def make_forecast_panel_df(*, seed=1):
                 scale = pop if metric == "count" else 1.0
                 obs = base + np.cumsum(rng.normal(0, 1.5, (years <= anchor).sum()))
                 for yr, v in zip(years[years <= anchor], obs, strict=True):
-                    rows.append({"group": g, "measure": measure, "metric": metric,
-                                 "series": "observed", "year_id": yr, "mid": v * scale / 1e5,
-                                 "lo": np.nan, "hi": np.nan})
+                    rows.append(
+                        {
+                            "group": g,
+                            "measure": measure,
+                            "metric": metric,
+                            "series": "observed",
+                            "year_id": yr,
+                            "mid": v * scale / 1e5,
+                            "lo": np.nan,
+                            "hi": np.nan,
+                        }
+                    )
                 last = obs[-1]
                 fut_years = years[years >= anchor]
                 for ssp, slope in ssps.items():
@@ -72,10 +82,18 @@ def make_forecast_panel_df(*, seed=1):
                     mid = last + drift + np.cumsum(rng.normal(0, 0.8, len(fut_years)))
                     half = 2 + 0.08 * np.abs(mid)
                     for yr, m, h in zip(fut_years, mid, half, strict=True):
-                        rows.append({"group": g, "measure": measure, "metric": metric,
-                                     "series": ssp, "year_id": yr,
-                                     "mid": m * scale / 1e5, "lo": (m - h) * scale / 1e5,
-                                     "hi": (m + h) * scale / 1e5})
+                        rows.append(
+                            {
+                                "group": g,
+                                "measure": measure,
+                                "metric": metric,
+                                "series": ssp,
+                                "year_id": yr,
+                                "mid": m * scale / 1e5,
+                                "lo": (m - h) * scale / 1e5,
+                                "hi": (m + h) * scale / 1e5,
+                            }
+                        )
     return pd.DataFrame(rows)
 
 
@@ -84,10 +102,24 @@ def make_scatter_df(*, n=120, seed=2):
     rng = np.random.default_rng(seed)
     x = rng.uniform(0.3, 0.9, n)
     y = 0.02 - 0.03 * (x - 0.3) + rng.normal(0, 0.01, n)
-    df = pd.DataFrame({"x": x, "y": y, "level": 5, "weight": rng.uniform(1e4, 5e7, n),
-                       "location_name": [f"unit_{i}" for i in range(n)]})
-    base = pd.DataFrame({"x": [x.mean()], "y": [y.mean()], "level": [3],
-                         "weight": [df["weight"].sum()], "location_name": ["National"]})
+    df = pd.DataFrame(
+        {
+            "x": x,
+            "y": y,
+            "level": 5,
+            "weight": rng.uniform(1e4, 5e7, n),
+            "location_name": [f"unit_{i}" for i in range(n)],
+        }
+    )
+    base = pd.DataFrame(
+        {
+            "x": [x.mean()],
+            "y": [y.mean()],
+            "level": [3],
+            "weight": [df["weight"].sum()],
+            "location_name": ["National"],
+        }
+    )
     return pd.concat([df, base], ignore_index=True)
 
 
@@ -110,10 +142,16 @@ def make_trajectory_df(*, n_groups=6, seed=4):
         x0 = rng.uniform(0.3, 0.7)
         a0 = rng.uniform(0.05, 0.2)
         for k, yr in enumerate(years):
-            rows.append({"location_id": gid, "location_name": f"country_{gid}",
-                         "level_value": x0 + 0.012 * k + rng.normal(0, 0.004),
-                         "aid": max(a0 - 0.006 * k + rng.normal(0, 0.003), 0.01),
-                         "year_id": yr, "focus": gid < 3})
+            rows.append(
+                {
+                    "location_id": gid,
+                    "location_name": f"country_{gid}",
+                    "level_value": x0 + 0.012 * k + rng.normal(0, 0.004),
+                    "aid": max(a0 - 0.006 * k + rng.normal(0, 0.003), 0.01),
+                    "year_id": yr,
+                    "focus": gid < 3,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -126,7 +164,8 @@ def make_dispersion_stats(*, n_groups=12, seed=5):
     """
     rng = np.random.default_rng(seed)
     srs = ["Sub-Saharan Africa", "South Asia", "Latin America and Caribbean", "High-income"]
-    stats, values = [], []
+    stats: list[dict] = []
+    values: list[dict] = []
     for gid in range(n_groups):
         sr = srs[gid % len(srs)]
         center0 = rng.uniform(0.3, 0.7)
@@ -134,12 +173,19 @@ def make_dispersion_stats(*, n_groups=12, seed=5):
             center = center0 + shift
             spread = rng.uniform(0.05, 0.2)
             units = np.clip(rng.normal(center, spread, 40), 0.01, 0.99)
-            stats.append({"A0_location_id": gid, "year_id": yr,
-                          "lo": units.min(), "hi": units.max(),
-                          "med": np.median(units), "mean": units.mean(),
-                          "group_name": f"group_{gid}", "super_region_name": sr})
-            for u in units:
-                values.append({"A0_location_id": gid, "year_id": yr, "value": u})
+            stats.append(
+                {
+                    "A0_location_id": gid,
+                    "year_id": yr,
+                    "lo": units.min(),
+                    "hi": units.max(),
+                    "med": np.median(units),
+                    "mean": units.mean(),
+                    "group_name": f"group_{gid}",
+                    "super_region_name": sr,
+                }
+            )
+            values.extend({"A0_location_id": gid, "year_id": yr, "value": u} for u in units)
     return pd.DataFrame(stats), pd.DataFrame(values)
 
 
@@ -159,8 +205,8 @@ def make_admin_polygons(*, nx=6, ny=4, seed=7):
     Lazy-imports geopandas/shapely (optional geo stack) so importing this module never
     requires them.
     """
-    import geopandas as gpd  # noqa: PLC0415 -- optional geo dep, lazy on purpose
-    from shapely.geometry import box  # noqa: PLC0415
+    import geopandas as gpd
+    from shapely.geometry import box
 
     rng = np.random.default_rng(seed)
     ids, vals, geoms = [], [], []
@@ -185,16 +231,19 @@ def make_admin0_polygons(*, seed=0):
     Downloads Natural Earth data on first use (cartopy's cache); requires the geo stack
     (cartopy + geopandas). Use for realistic global/regional choropleths.
     """
-    import cartopy.io.shapereader as shpreader  # noqa: PLC0415 -- optional geo dep, lazy
-    import geopandas as gpd  # noqa: PLC0415
+    import cartopy.io.shapereader as shpreader
+    import geopandas as gpd
 
     path = shpreader.natural_earth(resolution="110m", category="cultural", name="admin_0_countries")
     ne = gpd.read_file(path)
     ne = ne[ne.geometry.notna()].reset_index(drop=True)
     rng = np.random.default_rng(seed)
     out = gpd.GeoDataFrame(
-        {"location_id": range(len(ne)), "value": rng.uniform(0, 100, len(ne)),
-         "geometry": ne.geometry.to_numpy()},
+        {
+            "location_id": range(len(ne)),
+            "value": rng.uniform(0, 100, len(ne)),
+            "geometry": ne.geometry.to_numpy(),
+        },
         crs=ne.crs,
     )
     name_col = next((c for c in ("ADMIN", "NAME", "SOVEREIGNT") if c in ne.columns), None)
@@ -217,7 +266,7 @@ def make_admin0_field(*, ny=300, nx=720, extent=(-180, 180, -60, 90), seed=9):
     Default grid is 0.5 degrees; cached so the choropleth and raster exemplars share one build.
     Requires the geo stack; downloads Natural Earth data on first use.
     """
-    import geopandas as gpd  # noqa: PLC0415 -- optional geo dep, lazy
+    import geopandas as gpd
 
     world = make_admin0_polygons(seed=seed)[["location_id", "geometry"]]
     x0, x1, y0, y1 = extent

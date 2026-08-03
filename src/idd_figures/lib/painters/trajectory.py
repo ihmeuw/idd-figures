@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 
-__all__ = ["trajectory_panel", "plot_trajectory"]
+__all__ = ["plot_trajectory", "trajectory_panel"]
 
 
 def trajectory_panel(
@@ -46,8 +46,15 @@ def trajectory_panel(
             lo, hi = g[order].min(), g[order].max()
             for val, mk in ((lo, end_markers[0]), (hi, end_markers[1])):
                 pt = g[g[order] == val]
-                ax.scatter(pt[x], pt[y], s=end_s, color=c, edgecolors=edgecolors, marker=mk,
-                           zorder=zorder + 2)
+                ax.scatter(
+                    pt[x],
+                    pt[y],
+                    s=end_s,
+                    color=c,
+                    edgecolors=edgecolors,
+                    marker=mk,
+                    zorder=zorder + 2,
+                )
 
     if group is None:
         _draw(df, color)

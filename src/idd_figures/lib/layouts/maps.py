@@ -103,17 +103,37 @@ def map_panel(
 
     def _draw_map(ax, _data=None):
         return map_cell_painter(
-            ax, extent=extent, gdf=gdf, value_col=value_col, raster=raster,
-            raster_extent=raster_extent, cmap=cmap, norm=norm, base_admin_gdf=base_admin_gdf,
-            boundary_gdf=boundary_gdf, disputed_gdf=disputed_gdf, ocean=ocean, lakes=lakes,
-            coastlines=coastlines, borders=borders, masked_color=masked_color,
-            missing_color=missing_color, draw_data=draw_data, panel_letter=panel_letter,
+            ax,
+            extent=extent,
+            gdf=gdf,
+            value_col=value_col,
+            raster=raster,
+            raster_extent=raster_extent,
+            cmap=cmap,
+            norm=norm,
+            base_admin_gdf=base_admin_gdf,
+            boundary_gdf=boundary_gdf,
+            disputed_gdf=disputed_gdf,
+            ocean=ocean,
+            lakes=lakes,
+            coastlines=coastlines,
+            borders=borders,
+            masked_color=masked_color,
+            missing_color=missing_color,
+            draw_data=draw_data,
+            panel_letter=panel_letter,
             panel_letter_fontsize=panel_letter_fontsize,
         )
 
     def _draw_legend(ax, _data=None):
-        return bin_legend_panel(ax, colors=colors, labels=bin_labels, mappable=mappable,
-                                use_colorbar=use_colorbar, fontsize=legend_fontsize)
+        return bin_legend_panel(
+            ax,
+            colors=colors,
+            labels=bin_labels,
+            mappable=mappable,
+            use_colorbar=use_colorbar,
+            fontsize=legend_fontsize,
+        )
 
     have_legend = colors is not None or mappable is not None
     rows = []
@@ -121,25 +141,35 @@ def map_panel(
         rows.append({"h": title_h, "content": label(title, fontsize=title_fontsize)})
     if subtitle and subtitle_h > 0:
         rows.append({"h": subtitle_h, "content": label(subtitle, fontsize=subtitle_fontsize)})
-    rows.append({"h": map_h, "content": paint(_draw_map, None), "proj": ccrs.PlateCarree(), "name": "map"})
+    rows.append(
+        {"h": map_h, "content": paint(_draw_map, None), "proj": ccrs.PlateCarree(), "name": "map"}
+    )
     legend_cell = (
-        {"h": legend_h, "content": paint(_draw_legend, None)} if have_legend and legend_h > 0 else None
+        {"h": legend_h, "content": paint(_draw_legend, None)}
+        if have_legend and legend_h > 0
+        else None
     )
     title_cell = (
         {"h": legend_title_h, "content": label(legend_title, fontsize=legend_title_fontsize)}
-        if legend_title and legend_title_h > 0 else None
+        if legend_title and legend_title_h > 0
+        else None
     )
-    for r in ([title_cell, legend_cell] if legend_title_pos == "above" else [legend_cell, title_cell]):
-        if r is not None:
-            rows.append(r)
+    order = [title_cell, legend_cell] if legend_title_pos == "above" else [legend_cell, title_cell]
+    rows.extend(r for r in order if r is not None)
 
     fig_h = sum(r["h"] for r in rows)
     cells = [
         cell((i, 0), r["content"], projection=r.get("proj"), name=r.get("name"))
         for i, r in enumerate(rows)
     ]
-    spec = grid((len(rows), 1), cells, height_ratios=[r["h"] / fig_h for r in rows],
-                margins=margins or _FULL_BLEED, wspace=0.0, hspace=hspace)
+    spec = grid(
+        (len(rows), 1),
+        cells,
+        height_ratios=[r["h"] / fig_h for r in rows],
+        margins=margins or _FULL_BLEED,
+        wspace=0.0,
+        hspace=hspace,
+    )
     fig = panel_grid(spec, figsize=(fig_width, fig_h))
     if not draw_data:
         fig._idd_preview = True  # noqa: SLF001 -- own convention; save_figure suffixes _preview
@@ -179,13 +209,26 @@ def _bar_content(panel, bar_label, fontsize, band=None):
     knob for "the bar is too thick/thin" without touching the cell's height."""
     kw = dict(_BAR_BAND) if band is None else {"bin_bottom": band[0], "bin_top": band[1]}
     if panel.get("colors") is not None:
-        return paint(_legend_paint, None, colors=panel["colors"],
-                     labels=panel.get("bin_labels"), fontsize=fontsize, **kw)
-    return paint(_legend_paint, None, mappable=_panel_mappable(panel), use_colorbar=True,
-                 cbar_label=bar_label, fontsize=fontsize, **kw)
+        return paint(
+            _legend_paint,
+            None,
+            colors=panel["colors"],
+            labels=panel.get("bin_labels"),
+            fontsize=fontsize,
+            **kw,
+        )
+    return paint(
+        _legend_paint,
+        None,
+        mappable=_panel_mappable(panel),
+        use_colorbar=True,
+        cbar_label=bar_label,
+        fontsize=fontsize,
+        **kw,
+    )
 
 
-def map_facet(  # noqa: PLR0913 -- a layout's knobs are its API; every one is an explicit geometry input
+def map_facet(
     rows,
     *,
     fig_width=16.0,
@@ -237,23 +280,42 @@ def map_facet(  # noqa: PLR0913 -- a layout's knobs are its API; every one is an
                 from matplotlib.colors import Normalize
 
                 p["norm"] = Normalize(p["vmin"], p["vmax"])
-        inner = grid((1, k), [
-            cell((0, j), paint(
-                map_cell_painter, None, extent=extent, gdf=p.get("gdf"),
-                value_col=p.get("value_col"), raster=p.get("raster"),
-                raster_extent=p.get("raster_extent"), cmap=p.get("cmap"), norm=p.get("norm"),
-                base_admin_gdf=p.get("base_admin_gdf"), boundary_gdf=p.get("boundary_gdf"),
-                missing_color=p.get("missing_color"),
-                ocean=not preview and p.get("ocean", False),
-                draw_data=not preview,
-            ), projection=proj, title=p.get("title"),
-                name=p.get("name") or f"map:r{i}c{j}")
-            for j, p in enumerate(panels)
-        ], wspace=wspace)
+        inner = grid(
+            (1, k),
+            [
+                cell(
+                    (0, j),
+                    paint(
+                        map_cell_painter,
+                        None,
+                        extent=extent,
+                        gdf=p.get("gdf"),
+                        value_col=p.get("value_col"),
+                        raster=p.get("raster"),
+                        raster_extent=p.get("raster_extent"),
+                        cmap=p.get("cmap"),
+                        norm=p.get("norm"),
+                        base_admin_gdf=p.get("base_admin_gdf"),
+                        boundary_gdf=p.get("boundary_gdf"),
+                        missing_color=p.get("missing_color"),
+                        ocean=not preview and p.get("ocean", False),
+                        draw_data=not preview,
+                    ),
+                    projection=proj,
+                    title=p.get("title"),
+                    name=p.get("name") or f"map:r{i}c{j}",
+                )
+                for j, p in enumerate(panels)
+            ],
+            wspace=wspace,
+        )
         map_names.append(([p.get("name") or f"map:r{i}c{j}" for j, p in enumerate(panels)], extent))
         outer_cells.append(cell((out_i, 0), inner))
-        heights.append(map_row_height(fig_width, margins=margins_lr, ncols=k,
-                                      aspect=extent_aspect(extent), wspace=wspace))
+        heights.append(
+            map_row_height(
+                fig_width, margins=margins_lr, ncols=k, aspect=extent_aspect(extent), wspace=wspace
+            )
+        )
         out_i += 1
 
         mode = row.get("cbar")
@@ -262,15 +324,27 @@ def map_facet(  # noqa: PLR0913 -- a layout's knobs are its API; every one is an
         labels = row.get("cbar_label")
         band = row.get("cbar_band")  # (bin_bottom, bin_top) of the ramp within its cell
         if mode == "shared":
-            outer_cells.append(cell((out_i, 0), _bar_content(panels[0], labels, cbar_fontsize,
-                                                             band=band), name=f"cbar:r{i}"))
+            outer_cells.append(
+                cell(
+                    (out_i, 0),
+                    _bar_content(panels[0], labels, cbar_fontsize, band=band),
+                    name=f"cbar:r{i}",
+                )
+            )
         elif mode == "each":
             per = labels if isinstance(labels, (list, tuple)) else [labels] * k
-            bar_row = grid((1, k), [
-                cell((0, j), _bar_content(p, per[j], cbar_fontsize, band=band),
-                     name=f"cbar:r{i}c{j}")
-                for j, p in enumerate(panels)
-            ], wspace=wspace)
+            bar_row = grid(
+                (1, k),
+                [
+                    cell(
+                        (0, j),
+                        _bar_content(p, per[j], cbar_fontsize, band=band),
+                        name=f"cbar:r{i}c{j}",
+                    )
+                    for j, p in enumerate(panels)
+                ],
+                wspace=wspace,
+            )
             outer_cells.append(cell((out_i, 0), bar_row))
         else:
             msg = f"unknown cbar mode {mode!r}: use 'shared', 'each', or None"
@@ -280,7 +354,9 @@ def map_facet(  # noqa: PLR0913 -- a layout's knobs are its API; every one is an
 
     n = len(heights)
     content = sum(heights)
-    hspace = 0.0 if n == 1 else panel_title_h / (content / n)  # every gap = exactly the title allowance
+    hspace = (
+        0.0 if n == 1 else panel_title_h / (content / n)
+    )  # every gap = exactly the title allowance
     fig_h = content + (n - 1) * panel_title_h + panel_title_h + bottom_pad_h
     margins = {**margins_lr, "top": 1 - panel_title_h / fig_h, "bottom": bottom_pad_h / fig_h}
     _, ratios = solve_figure(heights, margins=margins, hspace=hspace)

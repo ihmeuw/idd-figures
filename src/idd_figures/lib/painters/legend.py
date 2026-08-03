@@ -70,10 +70,22 @@ def bin_legend_panel(
     height = bin_top - bin_bottom
     for i in range(n):
         ax.add_patch(
-            Rectangle((lefts[i], bin_bottom), width, height, facecolor=colors[i],
-                      edgecolor=edgecolor, linewidth=edge_lw)
+            Rectangle(
+                (lefts[i], bin_bottom),
+                width,
+                height,
+                facecolor=colors[i],
+                edgecolor=edgecolor,
+                linewidth=edge_lw,
+            )
         )
         if labels is not None:
-            ax.text(lefts[i] + width / 2, bin_bottom - label_gap, labels[i],
-                    ha="center", va="top", fontsize=fontsize)
+            ax.text(
+                lefts[i] + width / 2,
+                bin_bottom - label_gap,
+                labels[i],
+                ha="center",
+                va="top",
+                fontsize=fontsize,
+            )
     return ax

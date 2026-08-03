@@ -16,7 +16,7 @@ import warnings
 
 import numpy as np
 
-__all__ = ["clip_to_bins", "categorical_from_bins", "map_bin_labels"]
+__all__ = ["categorical_from_bins", "clip_to_bins", "map_bin_labels"]
 
 
 def clip_to_bins(values, bins):
@@ -26,9 +26,7 @@ def clip_to_bins(values, bins):
     lo, hi = float(bins[0]), float(bins[-1])
     n_out = int(np.count_nonzero((arr < lo) | (arr > hi)))
     if n_out:
-        warnings.warn(
-            f"clip_to_bins clamped {n_out} value(s) outside [{lo}, {hi}]", stacklevel=2
-        )
+        warnings.warn(f"clip_to_bins clamped {n_out} value(s) outside [{lo}, {hi}]", stacklevel=2)
     return np.clip(arr, lo, hi)
 
 
@@ -61,8 +59,9 @@ def _smart(val):
     return f"{val:,.2f}".rstrip("0").rstrip(".")
 
 
-def map_bin_labels(bins, *, le=False, ge=False, zero_bin=False, prefix="", suffix="",
-                   abbreviate=False):
+def map_bin_labels(  # noqa: C901 -- the label-style switchboard IS the function; splitting it is tracked debt
+    bins, *, le=False, ge=False, zero_bin=False, prefix="", suffix="", abbreviate=False
+):
     """Discrete bin labels for a map legend.
 
     ``le`` / ``ge`` render the first/last bins as ``< x`` / ``> x``; ``zero_bin`` gives
@@ -103,7 +102,7 @@ def map_bin_labels(bins, *, le=False, ge=False, zero_bin=False, prefix="", suffi
         left, right = edges[i], edges[i + 1]
         if zero_bin and i == zi:
             labels.append("0")
-        elif zero_bin and i == zi + 1:
+        elif zero_bin and zi is not None and i == zi + 1:
             labels.append(f"0 - {right}")
         elif left == right:
             labels.append(left)

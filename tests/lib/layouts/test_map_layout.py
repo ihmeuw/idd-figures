@@ -45,8 +45,15 @@ def test_world_choropleth_renders_if_ne_available():
 
 def test_map_panel_preview_skips_data():
     cmap, norm, colors = binned_colormap([0, 50, 100])
-    fig = map_panel(extent=[0, 6, 0, 4], cmap=cmap, norm=norm, colors=colors,
-                    ocean=False, draw_data=False, title="preview")
+    fig = map_panel(
+        extent=[0, 6, 0, 4],
+        cmap=cmap,
+        norm=norm,
+        colors=colors,
+        ocean=False,
+        draw_data=False,
+        title="preview",
+    )
     assert isinstance(fig, Figure)
     plt.close(fig)
 
@@ -54,8 +61,17 @@ def test_map_panel_preview_skips_data():
 def test_map_panel_legend_title_above_and_below():
     cmap, norm, colors = binned_colormap([0, 50, 100])
     for pos in ("above", "below"):
-        fig = map_panel(extent=[0, 6, 0, 4], cmap=cmap, norm=norm, colors=colors, ocean=False,
-                        title="t", legend_title="v", legend_title_pos=pos, draw_data=False)
+        fig = map_panel(
+            extent=[0, 6, 0, 4],
+            cmap=cmap,
+            norm=norm,
+            colors=colors,
+            ocean=False,
+            title="t",
+            legend_title="v",
+            legend_title_pos=pos,
+            draw_data=False,
+        )
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 4  # title / map / legend / legend-title
         plt.close(fig)
@@ -101,15 +117,27 @@ def test_map_panel_named_axes_box_matches_extent_and_aspect_explicit():
 
 def test_map_panel_aspect_breaking_margins_raise():
     with pytest.raises(ValueError, match="aspect"):
-        map_panel(extent=[0, 6, 0, 4], ocean=False, draw_data=False,
-                  margins={"left": 0.125, "right": 0.9, "top": 0.93, "bottom": 0.08})
+        map_panel(
+            extent=[0, 6, 0, 4],
+            ocean=False,
+            draw_data=False,
+            margins={"left": 0.125, "right": 0.9, "top": 0.93, "bottom": 0.08},
+        )
 
 
 def test_map_panel_aspect_breaking_hspace_raises():
     cmap, norm, colors = binned_colormap([0, 50, 100])
     with pytest.raises(ValueError, match="aspect"):
-        map_panel(extent=[0, 6, 0, 4], cmap=cmap, norm=norm, colors=colors,
-                  ocean=False, draw_data=False, title="t", hspace=0.3)
+        map_panel(
+            extent=[0, 6, 0, 4],
+            cmap=cmap,
+            norm=norm,
+            colors=colors,
+            ocean=False,
+            draw_data=False,
+            title="t",
+            hspace=0.3,
+        )
 
 
 def test_map_facet_rows_bars_aspect_and_names():
@@ -119,11 +147,23 @@ def test_map_facet_rows_bars_aspect_and_names():
     gdf = make_synthetic_continents()
     cmap, norm, _ = binned_colormap([0, 25, 50, 75, 100])
     p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}
-    fig = map_facet([
-        {"panels": [dict(p, title=t) for t in ("a", "b", "c")], "extent": SYNTHETIC_EXTENT,
-         "cbar": "shared", "cbar_label": "value"},
-        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "each", "cbar_label": "value"},
-    ], fig_width=12)
+    fig = map_facet(
+        [
+            {
+                "panels": [dict(p, title=t) for t in ("a", "b", "c")],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "shared",
+                "cbar_label": "value",
+            },
+            {
+                "panels": [dict(p)],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "each",
+                "cbar_label": "value",
+            },
+        ],
+        fig_width=12,
+    )
     fw, fh = fig.get_size_inches()
     want = (SYNTHETIC_EXTENT[3] - SYNTHETIC_EXTENT[2]) / (SYNTHETIC_EXTENT[1] - SYNTHETIC_EXTENT[0])
     for nm in ("map:r0c0", "map:r0c1", "map:r0c2", "map:r1c0"):
@@ -146,12 +186,17 @@ def test_map_facet_gaps_are_exactly_the_title_allowance_and_preview_marks():
     cmap, norm, colors = binned_colormap([0, 25, 50, 75, 100])
     p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm, "colors": colors}
     title_h = 0.4
-    fig = map_facet([
-        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "shared"},
-        {"panels": [dict(p), dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": None},
-    ], fig_width=10, panel_title_h=title_h, preview=True)
+    fig = map_facet(
+        [
+            {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "shared"},
+            {"panels": [dict(p), dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": None},
+        ],
+        fig_width=10,
+        panel_title_h=title_h,
+        preview=True,
+    )
     assert getattr(fig, "_idd_preview", False)  # save_figure will suffix _preview
-    fw, fh = fig.get_size_inches()
+    _fw, fh = fig.get_size_inches()
     top_map = fig.axes_by_name["map:r0c0"].get_position(original=True)
     bar = fig.axes_by_name["cbar:r0"].get_position(original=True)
     gap_in = (top_map.y0 - bar.y1) * fh
@@ -166,10 +211,18 @@ def test_map_facet_row_cbar_band_thins_the_ramp():
     gdf = make_synthetic_continents()
     cmap, norm, _ = binned_colormap([0, 50, 100])
     p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}
-    fig = map_facet([
-        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "shared",
-         "cbar_band": (0.70, 0.92), "cbar_h": 0.7},
-    ], fig_width=10)
+    fig = map_facet(
+        [
+            {
+                "panels": [dict(p)],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "shared",
+                "cbar_band": (0.70, 0.92),
+                "cbar_h": 0.7,
+            },
+        ],
+        fig_width=10,
+    )
     cell_ax = fig.axes_by_name["cbar:r0"]
     ramp = cell_ax.child_axes[0].get_position()
     cell_pos = cell_ax.get_position(original=True)
@@ -185,8 +238,15 @@ def test_map_facet_unknown_cbar_mode_raises():
     gdf = make_synthetic_continents()
     cmap, norm, _ = binned_colormap([0, 50, 100])
     with pytest.raises(ValueError, match="cbar mode"):
-        map_facet([{"panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
-                    "extent": SYNTHETIC_EXTENT, "cbar": "both"}])
+        map_facet(
+            [
+                {
+                    "panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": "both",
+                }
+            ]
+        )
 
 
 def test_world_choropleth_continuous_if_ne_available():

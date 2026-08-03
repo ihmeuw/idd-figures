@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 __all__ = [
-    "size_by_logpop",
     "distinct_colors",
     "ordered_legend",
+    "size_by_logpop",
     "turn_off_axes",
     "ui_tick_formatter",
 ]
@@ -43,7 +43,7 @@ def distinct_colors(ids, *, cmap="tab10"):
 def ordered_legend(ax):
     """Return ``(handles, labels)`` from ``ax`` with duplicate labels removed."""
     handles, labels = ax.get_legend_handles_labels()
-    seen = {}
+    seen: dict = {}
     for h, lab in zip(handles, labels, strict=False):
         seen.setdefault(lab, h)
     return list(seen.values()), list(seen.keys())

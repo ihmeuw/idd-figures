@@ -22,8 +22,9 @@ def test_lines_draws_and_returns_ax():
 def test_lines_value_scale_suffix_on_ylabel():
     df = ed.make_timeseries_df(n_series=1)
     fig, ax = plt.subplots()
-    lines_panel(ax, df, x="year_id", value="value", ylabel="count",
-                value_scale=(1e-3, " (in 1,000s)"))
+    lines_panel(
+        ax, df, x="year_id", value="value", ylabel="count", value_scale=(1e-3, " (in 1,000s)")
+    )
     assert ax.get_ylabel() == "count (in 1,000s)"
     plt.close(fig)
 
@@ -31,8 +32,17 @@ def test_lines_value_scale_suffix_on_ylabel():
 def test_lines_style_overrides():
     df = ed.make_timeseries_df(n_series=2)
     fig, ax = plt.subplots()
-    lines_panel(ax, df, x="year_id", value="value", hue="series",
-                lw=3.0, linestyle={"series_0": "--"}, alpha=0.5, marker={"series_0": "o"})
+    lines_panel(
+        ax,
+        df,
+        x="year_id",
+        value="value",
+        hue="series",
+        lw=3.0,
+        linestyle={"series_0": "--"},
+        alpha=0.5,
+        marker={"series_0": "o"},
+    )
     line0 = ax.lines[0]  # series_0 (sorted hue order)
     assert line0.get_linewidth() == 3.0
     assert line0.get_linestyle() == "--"
@@ -46,8 +56,9 @@ def test_lines_band_color_override():
 
     df = ed.make_timeseries_df(n_series=1)
     fig, ax = plt.subplots()
-    lines_panel(ax, df, x="year_id", value="value", lo="lo", hi="hi",
-                band_color="red", band_alpha=0.3)
+    lines_panel(
+        ax, df, x="year_id", value="value", lo="lo", hi="hi", band_color="red", band_alpha=0.3
+    )
     facecolor = tuple(ax.collections[0].get_facecolor()[0])
     assert facecolor == pytest.approx(to_rgba("red", 0.3))
     plt.close(fig)
@@ -56,8 +67,14 @@ def test_lines_band_color_override():
 def test_scatter_ref_lines_and_shade():
     df = ed.make_left_behind_df(n=20)
     fig, ax = plt.subplots()
-    scatter_panel(ax, df, x="x", y="y", ref_lines={"h": 0, "v": 0},
-                  shade={"x": (-0.1, 0), "y": (-0.05, 0), "text": "hi"})
+    scatter_panel(
+        ax,
+        df,
+        x="x",
+        y="y",
+        ref_lines={"h": 0, "v": 0},
+        shade={"x": (-0.1, 0), "y": (-0.05, 0), "text": "hi"},
+    )
     assert len(ax.collections) >= 1
     assert len(ax.patches) >= 1
     plt.close(fig)
@@ -75,8 +92,14 @@ def test_trajectory_draws_path_and_markers():
 def test_range_bars_draws():
     stats, vals = ed.make_dispersion_stats(n_groups=6)
     fig, ax = plt.subplots()
-    range_bars_panel(ax, stats, group_col="A0_location_id", years=(2000, 2023),
-                     color_by="super_region_name", values_df=vals)
+    range_bars_panel(
+        ax,
+        stats,
+        group_col="A0_location_id",
+        years=(2000, 2023),
+        color_by="super_region_name",
+        values_df=vals,
+    )
     assert len(ax.collections) >= 1
     plt.close(fig)
 

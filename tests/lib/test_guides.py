@@ -20,8 +20,15 @@ def test_grid_anatomy_annotates_every_margin_and_gap():
     fig = guide_grid_anatomy()
     assert isinstance(fig, Figure)
     text = " ".join(t.get_text() for t in fig.texts)
-    for token in ('margins["left"]', 'margins["right"]', 'margins["top"]',
-                  'margins["bottom"]', "wspace", "hspace", "height_ratios"):
+    for token in (
+        'margins["left"]',
+        'margins["right"]',
+        'margins["top"]',
+        'margins["bottom"]',
+        "wspace",
+        "hspace",
+        "height_ratios",
+    ):
         assert token in text
     plt.close(fig)
 
@@ -48,8 +55,9 @@ def test_guides_reannotate_with_changed_knobs():
     fig = guide_bar_cell_anatomy(margin=0.2)
     assert any("margin = 0.2" in t.get_text() for t in fig.texts)
     plt.close(fig)
-    fig = guide_text_placement(margins={"left": 0.07, "right": 0.95, "top": 0.86, "bottom": 0.14},
-                               notes=False)
+    fig = guide_text_placement(
+        margins={"left": 0.07, "right": 0.95, "top": 0.86, "bottom": 0.14}, notes=False
+    )
     assert any("0.07" in t.get_text() for t in fig.texts)  # margins echoed on the figure
     assert any('margins["bottom"] = 0.14' in t.get_text() for t in fig.texts)  # measured band
     plt.close(fig)
@@ -60,8 +68,14 @@ def test_text_styles_guide_labels_every_owner_call():
 
     fig = guide_text_styles(xtick_size=6)
     text = " ".join(t.get_text() for t in fig.texts)
-    for token in ("set_title", "set_xlabel", "set_ylabel", 'tick_params(axis="x", labelsize=6)',
-                  "suptitle", "rc_context"):
+    for token in (
+        "set_title",
+        "set_xlabel",
+        "set_ylabel",
+        'tick_params(axis="x", labelsize=6)',
+        "suptitle",
+        "rc_context",
+    ):
         assert token in text
     ax = fig.axes_by_name["p"]
     assert ax.title.get_fontsize() == 20  # default title size actually applied

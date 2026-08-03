@@ -47,8 +47,7 @@ def test_colorbar_label_lands_on_the_inset():
     fig, ax = plt.subplots()
     sm = plt.cm.ScalarMappable(norm=Normalize(0, 100))
     sm.set_array([])
-    bin_legend_panel(ax, mappable=sm, use_colorbar=True, orientation="horizontal",
-                     cbar_label="HDI")
+    bin_legend_panel(ax, mappable=sm, use_colorbar=True, orientation="horizontal", cbar_label="HDI")
     cax = ax.child_axes[0]
     assert cax.get_xlabel() == "HDI"  # horizontal bar labels along x
     plt.close(fig)

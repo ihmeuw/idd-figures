@@ -29,8 +29,16 @@ REGION_COLORS = {
 def _box(fig, x0, y0, w, h, color, *, lw=1.2, ls="-"):
     fig.add_artist(
         mpatches.Rectangle(
-            (x0, y0), w, h, transform=fig.transFigure, fill=False, edgecolor=color,
-            lw=lw, ls=ls, zorder=1000, clip_on=False,
+            (x0, y0),
+            w,
+            h,
+            transform=fig.transFigure,
+            fill=False,
+            edgecolor=color,
+            lw=lw,
+            ls=ls,
+            zorder=1000,
+            clip_on=False,
         )
     )
 
@@ -52,7 +60,7 @@ def show_anatomy(fig, *, axes=None, outer=True, key=True):
     if outer:
         _box(fig, 0, 0, 1, 1, REGION_COLORS["figure"], lw=1.5, ls=":")
 
-    for ax in (axes if axes is not None else fig.axes):
+    for ax in axes if axes is not None else fig.axes:
         pos = ax.get_position()
         _box(fig, pos.x0, pos.y0, pos.width, pos.height, REGION_COLORS["panel"])
 
@@ -76,6 +84,5 @@ def show_anatomy(fig, *, axes=None, outer=True, key=True):
 
     if key:
         handles = [mpatches.Patch(facecolor=c, label=r) for r, c in REGION_COLORS.items()]
-        fig.legend(handles=handles, loc="upper right", fontsize=7, frameon=False,
-                   title="anatomy")
+        fig.legend(handles=handles, loc="upper right", fontsize=7, frameon=False, title="anatomy")
     return fig

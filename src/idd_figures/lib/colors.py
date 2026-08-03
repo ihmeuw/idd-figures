@@ -22,7 +22,7 @@ __all__ = [
 
 def get_colors(n_bins, cmap_name="Reds"):
     """``n_bins`` colours sampled evenly across a named colormap."""
-    if n_bins < 2:  # noqa: PLR2004 — a color ramp needs at least 2 colors
+    if n_bins < 2:
         msg = "n_bins must be >= 2"
         raise ValueError(msg)
     cmap = mpl.colormaps[cmap_name]
@@ -68,7 +68,7 @@ def clipped_diverging_cmap(name="RdYlBu", *, lo=0.375, hi=0.625, n=256):
     if not 0 <= lo < hi <= 1:
         msg = f"need 0 <= lo < hi <= 1, got lo={lo}, hi={hi}"
         raise ValueError(msg)
-    if abs(lo - (1 - hi)) > 1e-9:  # noqa: PLR2004 -- float-equality tolerance, not a tunable
+    if abs(lo - (1 - hi)) > 1e-9:
         msg = f"lo/hi must be symmetric about 0.5 (lo == 1 - hi), got lo={lo}, hi={hi}"
         raise ValueError(msg)
     base = mpl.colormaps[name]
@@ -77,7 +77,7 @@ def clipped_diverging_cmap(name="RdYlBu", *, lo=0.375, hi=0.625, n=256):
     return mcolors.ListedColormap(keep, name=f"{name}_clipped")
 
 
-def binned_colormap(  # noqa: PLR0913 — orthogonal keyword-only colormap options; grouping them would only add ceremony
+def binned_colormap(
     bins,
     *,
     base_cmap=None,

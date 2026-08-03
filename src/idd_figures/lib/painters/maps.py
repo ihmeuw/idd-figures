@@ -66,8 +66,14 @@ def basemap_painter(
     if borders:
         ax.add_feature(cfeature.BORDERS, linewidth=0.3, edgecolor="gray")
     if base_admin_gdf is not None:
-        base_admin_gdf.plot(ax=ax, color=admin_backdrop_color, edgecolor="black",
-                            linewidth=0, transform=_PC, zorder=1)
+        base_admin_gdf.plot(
+            ax=ax,
+            color=admin_backdrop_color,
+            edgecolor="black",
+            linewidth=0,
+            transform=_PC,
+            zorder=1,
+        )
     if admin1_gdf is not None:
         admin1_gdf.boundary.plot(ax=ax, color="darkgrey", linewidth=0.25, transform=_PC, zorder=1)
     return ax
@@ -95,15 +101,23 @@ def choropleth_painter(
     polygons whose value is NaN (else they fall through to the basemap backdrop).
     """
     plot_kw = {
-        "column": value_col, "ax": ax, "cmap": cmap, "norm": norm, "legend": False,
-        "edgecolor": edgecolor, "linewidth": linewidth, "transform": _PC, "zorder": zorder,
+        "column": value_col,
+        "ax": ax,
+        "cmap": cmap,
+        "norm": norm,
+        "legend": False,
+        "edgecolor": edgecolor,
+        "linewidth": linewidth,
+        "transform": _PC,
+        "zorder": zorder,
     }
     if missing_color is not None:
         plot_kw["missing_kwds"] = {"color": missing_color}
     gdf.plot(**plot_kw)
     if boundary_gdf is not None:
-        boundary_gdf.boundary.plot(ax=ax, color=boundary_color, linewidth=boundary_lw,
-                                   transform=_PC, zorder=zorder + 1)
+        boundary_gdf.boundary.plot(
+            ax=ax, color=boundary_color, linewidth=boundary_lw, transform=_PC, zorder=zorder + 1
+        )
     return ax
 
 
@@ -144,8 +158,9 @@ def raster_painter(
         kw["vmin"], kw["vmax"] = vmin, vmax
     ax.imshow(arr, **kw)
     if boundary_gdf is not None:
-        boundary_gdf.boundary.plot(ax=ax, color=boundary_color, linewidth=boundary_lw,
-                                   transform=_PC, zorder=zorder + 1)
+        boundary_gdf.boundary.plot(
+            ax=ax, color=boundary_color, linewidth=boundary_lw, transform=_PC, zorder=zorder + 1
+        )
     return ax
 
 
@@ -159,12 +174,18 @@ def disputed_boundary_painter(
     bbox = box(extent[0], extent[2], extent[1], extent[3])
     clipped = disputed_gdf.clip(bbox)
     if len(clipped):
-        clipped.boundary.plot(ax=ax, color=color, linewidth=linewidth, linestyle=linestyle,
-                              transform=_PC, zorder=zorder)
+        clipped.boundary.plot(
+            ax=ax,
+            color=color,
+            linewidth=linewidth,
+            linestyle=linestyle,
+            transform=_PC,
+            zorder=zorder,
+        )
     return ax
 
 
-def map_cell_painter(  # noqa: PLR0913 -- the union of the composed painters' knobs; grouping adds ceremony
+def map_cell_painter(
     ax,
     _data=None,
     *,
@@ -195,18 +216,47 @@ def map_cell_painter(  # noqa: PLR0913 -- the union of the composed painters' kn
     ...)`` works directly). ``draw_data=False`` skips the expensive data draw
     for layout iteration. Never touches aspect or the Figure.
     """
-    basemap_painter(ax, extent=extent, ocean=ocean, lakes=lakes, coastlines=coastlines,
-                    borders=borders, base_admin_gdf=base_admin_gdf)
+    basemap_painter(
+        ax,
+        extent=extent,
+        ocean=ocean,
+        lakes=lakes,
+        coastlines=coastlines,
+        borders=borders,
+        base_admin_gdf=base_admin_gdf,
+    )
     if draw_data:
         if gdf is not None:
-            choropleth_painter(ax, gdf, value_col=value_col, cmap=cmap, norm=norm,
-                               boundary_gdf=boundary_gdf, missing_color=missing_color)
+            choropleth_painter(
+                ax,
+                gdf,
+                value_col=value_col,
+                cmap=cmap,
+                norm=norm,
+                boundary_gdf=boundary_gdf,
+                missing_color=missing_color,
+            )
         elif raster is not None:
-            raster_painter(ax, raster, extent=raster_extent or extent, cmap=cmap,
-                           norm=norm, masked_color=masked_color, boundary_gdf=boundary_gdf)
+            raster_painter(
+                ax,
+                raster,
+                extent=raster_extent or extent,
+                cmap=cmap,
+                norm=norm,
+                masked_color=masked_color,
+                boundary_gdf=boundary_gdf,
+            )
         if disputed_gdf is not None:
             disputed_boundary_painter(ax, disputed_gdf, extent=extent)
     if panel_letter:
-        ax.text(0.02, 0.98, panel_letter, transform=ax.transAxes, va="top", ha="left",
-                fontsize=panel_letter_fontsize, fontweight="bold")
+        ax.text(
+            0.02,
+            0.98,
+            panel_letter,
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+            fontsize=panel_letter_fontsize,
+            fontweight="bold",
+        )
     return ax

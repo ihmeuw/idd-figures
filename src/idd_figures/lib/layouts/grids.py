@@ -14,22 +14,23 @@ common faceting trees (small-multiples / row x col) and calls ``panel_grid``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
 __all__ = [
-    "grid",
+    "blank",
     "cell",
-    "paint",
+    "colorbar",
+    "facet_grid",
+    "grid",
     "label",
     "legend",
-    "colorbar",
-    "blank",
+    "paint",
     "panel_grid",
-    "facet_grid",
 ]
 
 # explicit default outer margins (figure fractions) — never tight_layout
@@ -84,7 +85,9 @@ class Grid:
     cells: list
     height_ratios: list | None = None
     width_ratios: list | None = None
-    margins: dict | None = None  # top level only; nested grids raise (the parent's cell IS the margin control)
+    margins: dict | None = (
+        None  # top level only; nested grids raise (the parent's cell IS the margin control)
+    )
     wspace: float | None = None
     hspace: float | None = None
 
@@ -127,9 +130,13 @@ def _make_gs(node, fig, parent_spec):
     if parent_spec is None:
         margins = {**_DEFAULT_MARGINS, **(node.margins or {})}
         return GridSpec(
-            *node.shape, figure=fig,
-            height_ratios=node.height_ratios, width_ratios=node.width_ratios,
-            wspace=node.wspace, hspace=node.hspace, **margins,
+            *node.shape,
+            figure=fig,
+            height_ratios=node.height_ratios,
+            width_ratios=node.width_ratios,
+            wspace=node.wspace,
+            hspace=node.hspace,
+            **margins,
         )
     if node.margins:
         msg = (
@@ -139,9 +146,12 @@ def _make_gs(node, fig, parent_spec):
         )
         raise ValueError(msg)
     return GridSpecFromSubplotSpec(
-        *node.shape, subplot_spec=parent_spec,
-        height_ratios=node.height_ratios, width_ratios=node.width_ratios,
-        wspace=node.wspace, hspace=node.hspace,
+        *node.shape,
+        subplot_spec=parent_spec,
+        height_ratios=node.height_ratios,
+        width_ratios=node.width_ratios,
+        wspace=node.wspace,
+        hspace=node.hspace,
     )
 
 
@@ -172,8 +182,15 @@ def _realize(node, fig, parent_spec, registry):
         elif isinstance(content, Label):
             kw = dict(content.kwargs)
             ax.axis("off")
-            ax.text(0.5, 0.5, content.text, ha=kw.pop("ha", "center"),
-                    va=kw.pop("va", "center"), transform=ax.transAxes, **kw)
+            ax.text(
+                0.5,
+                0.5,
+                content.text,
+                ha=kw.pop("ha", "center"),
+                va=kw.pop("va", "center"),
+                transform=ax.transAxes,
+                **kw,
+            )
         elif isinstance(content, Legend):
             ax.axis("off")
             if isinstance(content.handles, tuple):
@@ -194,7 +211,7 @@ def panel_grid(spec, *, figsize, fig=None):
     """
     if fig is None:
         fig = plt.figure(figsize=figsize)
-    registry = {}
+    registry: dict = {}
     _realize(spec, fig, None, registry)
     fig.axes_by_name = registry  # post-layout annotation needs the named cells back
     return fig
@@ -257,12 +274,17 @@ def facet_grid(
             for j, cv in enumerate(cvals):
                 info = {row: rv, col: cv}
                 name = f"{i}_{j}"
-                cells.append(cell(
-                    (i, j), paint(painter, panel_slice(data, info), **pk(info)), name=name,
-                    projection=projection,
-                    sharex=(first if sharex else None), sharey=(first if sharey else None),
-                    title=title_of(info),
-                ))
+                cells.append(
+                    cell(
+                        (i, j),
+                        paint(painter, panel_slice(data, info), **pk(info)),
+                        name=name,
+                        projection=projection,
+                        sharex=(first if sharex else None),
+                        sharey=(first if sharey else None),
+                        title=title_of(info),
+                    )
+                )
                 first = first or name
     else:
         facet = row or col
@@ -278,12 +300,17 @@ def facet_grid(
             i, j = divmod(k, nc)
             info = {facet: v}
             name = f"{i}_{j}"
-            cells.append(cell(
-                (i, j), paint(painter, panel_slice(data, info), **pk(info)), name=name,
-                projection=projection,
-                sharex=(first if sharex else None), sharey=(first if sharey else None),
-                title=title_of(info),
-            ))
+            cells.append(
+                cell(
+                    (i, j),
+                    paint(painter, panel_slice(data, info), **pk(info)),
+                    name=name,
+                    projection=projection,
+                    sharex=(first if sharex else None),
+                    sharey=(first if sharey else None),
+                    title=title_of(info),
+                )
+            )
             first = first or name
 
     spec = grid(shape, cells, margins=margins, wspace=wspace, hspace=hspace)

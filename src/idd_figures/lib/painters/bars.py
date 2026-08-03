@@ -16,7 +16,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 
-__all__ = ["range_bars_panel", "plot_range_bars"]
+__all__ = ["plot_range_bars", "range_bars_panel"]
 
 
 def _draw_bar(ax, xpos, lo, hi, med, mean, *, edgecolor, med_color, transform=None, lw=7, bw=0.38):
@@ -32,8 +32,9 @@ def _draw_dots(ax, xpos, values, color, *, rng, transform=None, bw=0.38):
     if transform:
         v = v / transform
     jitter = (rng.random(len(v)) - 0.5) * bw * 0.7
-    ax.scatter(np.full(len(v), xpos) + jitter, v, s=3, color=color, alpha=0.15,
-               edgecolors="none", zorder=1)
+    ax.scatter(
+        np.full(len(v), xpos) + jitter, v, s=3, color=color, alpha=0.15, edgecolors="none", zorder=1
+    )
 
 
 def range_bars_panel(
@@ -73,7 +74,9 @@ def range_bars_panel(
     rng = np.random.default_rng(seed)
     dot_lookup = {}
     if values_df is not None:
-        dot_lookup = {k: g[value_col].to_numpy() for k, g in values_df.groupby([group_col, "year_id"])}
+        dot_lookup = {
+            k: g[value_col].to_numpy() for k, g in values_df.groupby([group_col, "year_id"])
+        }
 
     for i, (gid, row) in enumerate(wide.iterrows()):
         color = colors.get(row[color_by], grey) if color_by else "C0"
@@ -81,15 +84,39 @@ def range_bars_panel(
         m0 = row[f"mean_{y0}"] if relative else None
         m1 = row[f"mean_{y1}"] if relative else None
         if values_df is not None:
-            _draw_dots(ax, x0, dot_lookup.get((gid, y0), []), grey, rng=rng, transform=m0, bw=bar_width)
-            _draw_dots(ax, x1, dot_lookup.get((gid, y1), []), color, rng=rng, transform=m1, bw=bar_width)
-        _draw_bar(ax, x0, row[f"lo_{y0}"], row[f"hi_{y0}"], row[f"med_{y0}"], row[f"mean_{y0}"],
-                  edgecolor=grey, med_color=med_light, transform=m0, bw=bar_width)
-        _draw_bar(ax, x1, row[f"lo_{y1}"], row[f"hi_{y1}"], row[f"med_{y1}"], row[f"mean_{y1}"],
-                  edgecolor=color, med_color=med_dark, transform=m1, bw=bar_width)
+            _draw_dots(
+                ax, x0, dot_lookup.get((gid, y0), []), grey, rng=rng, transform=m0, bw=bar_width
+            )
+            _draw_dots(
+                ax, x1, dot_lookup.get((gid, y1), []), color, rng=rng, transform=m1, bw=bar_width
+            )
+        _draw_bar(
+            ax,
+            x0,
+            row[f"lo_{y0}"],
+            row[f"hi_{y0}"],
+            row[f"med_{y0}"],
+            row[f"mean_{y0}"],
+            edgecolor=grey,
+            med_color=med_light,
+            transform=m0,
+            bw=bar_width,
+        )
+        _draw_bar(
+            ax,
+            x1,
+            row[f"lo_{y1}"],
+            row[f"hi_{y1}"],
+            row[f"med_{y1}"],
+            row[f"mean_{y1}"],
+            edgecolor=color,
+            med_color=med_dark,
+            transform=m1,
+            bw=bar_width,
+        )
 
     ax.set_xticks(x)
-    labels = wide["group_name"] if "group_name" in wide else wide.index
+    labels = wide.get("group_name", wide.index)
     ax.set_xticklabels(labels, rotation=90, fontsize=8)
     ax.set_xlim(-0.7, len(wide) - 0.3)
     if relative:

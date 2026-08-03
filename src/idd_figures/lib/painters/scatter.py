@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
-__all__ = ["scatter_panel", "plot_scatter"]
+__all__ = ["plot_scatter", "scatter_panel"]
 
 
 def _resolve_size(size, df):
@@ -65,26 +65,56 @@ def scatter_panel(
         (x0, x1), (y0, y1) = shade["x"], shade["y"]
         ax.add_patch(
             Rectangle(
-                (x0, y0), x1 - x0, y1 - y0,
-                facecolor=shade.get("color", "grey"), alpha=shade.get("alpha", 0.15),
-                edgecolor="none", zorder=0,
+                (x0, y0),
+                x1 - x0,
+                y1 - y0,
+                facecolor=shade.get("color", "grey"),
+                alpha=shade.get("alpha", 0.15),
+                edgecolor="none",
+                zorder=0,
             )
         )
         if "text" in shade:
-            ax.text((x0 + x1) / 2, (y0 + y1) / 2, shade["text"], ha="center", va="center",
-                    fontsize=11, color="0.25", zorder=1)
+            ax.text(
+                (x0 + x1) / 2,
+                (y0 + y1) / 2,
+                shade["text"],
+                ha="center",
+                va="center",
+                fontsize=11,
+                color="0.25",
+                zorder=1,
+            )
 
     if hue is not None and colors:
         for key, g in df.groupby(hue):
             sg = _resolve_size(size, g)
-            ax.scatter(g[x], g[y], s=s_default if sg is None else sg, color=colors.get(key),
-                       alpha=alpha, edgecolors=edgecolors, linewidths=linewidths, marker=marker,
-                       label=str(key), zorder=zorder)
+            ax.scatter(
+                g[x],
+                g[y],
+                s=s_default if sg is None else sg,
+                color=colors.get(key),
+                alpha=alpha,
+                edgecolors=edgecolors,
+                linewidths=linewidths,
+                marker=marker,
+                label=str(key),
+                zorder=zorder,
+            )
     else:
         s = _resolve_size(size, df)
-        ax.scatter(df[x], df[y], s=s_default if s is None else s, color=color, alpha=alpha,
-                   edgecolors=edgecolors, linewidths=linewidths, marker=marker, label=label,
-                   zorder=zorder)
+        ax.scatter(
+            df[x],
+            df[y],
+            s=s_default if s is None else s,
+            color=color,
+            alpha=alpha,
+            edgecolors=edgecolors,
+            linewidths=linewidths,
+            marker=marker,
+            label=label,
+            zorder=zorder,
+        )
 
     if ref_lines:
         for yv in np.atleast_1d(ref_lines.get("h", [])):

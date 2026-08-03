@@ -48,6 +48,16 @@ build-backend = "uv_build"
 line-length = 100
 src = ["src"]
 target-version = "py312"
+# Quarantine: attic/ is explicitly dead code kept for reference; the beeswarm
+# solver + its notebooks and the template scripts predate the library and are
+# lint-exempt until absorbed or retired (candidates for attic/).
+extend-exclude = [
+    "attic",
+    "notebooks/transformations.ipynb",
+    "notebooks/idd_beeswarm",
+    "notebooks/template_scripts",
+    "src/idd_figures/idd_beeswarm.py",
+]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -63,17 +73,37 @@ ignore = [
     "RUF001",   # ambiguous unicode (en-dash in bin labels) — intentional
     "N803",     # arg names like N_seq — domain naming
     "TRY003",   # long messages in raise — fine for research code
+    "PLC0415",  # lazy imports ARE the architecture: geo stack / optional deps load on use
+    "PLR0913",  # painter/layout knobs ARE the API; bundling them adds ceremony (2026-08-02)
+    "PLR2004",  # tier boundaries + demo geometry read clearer inline than as constants
+    "TC003",    # no typing-block ceremony — ANN is off, annotations are documentation here
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15  # explicit tier ladders / realisers sit at 13; flag only real sprawl
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["INP001", "T201"]
-"tests/**" = ["S101", "ARG", "S105", "INP001", "PLR2004"]
+"tests/**" = ["S101", "ARG", "S105", "INP001", "PLR2004", "PT018", "SLF001"]
 "**/__init__.py" = ["ERA001"]  # empty __init__s document the import convention in comments
 
 [tool.mypy]
+# Non-strict on purpose: the library is untyped-by-convention (house style);
+# strict=true was aspirational and had never actually run in this clone
+# (surfaced 2026-08-02 when pre-commit was first installed — 114 errors on the
+# first 6 staged files). check_untyped_defs still type-checks function BODIES,
+# so real bugs surface without demanding annotations. Revisit if a typing pass
+# is ever scheduled (.claude/DECISIONS.md 2026-08-02).
 python_version = "3.12"
-strict = true
 ignore_missing_imports = true
+check_untyped_defs = true
+exclude = ["^attic/", "^src/idd_figures/idd_beeswarm\\.py$"]  # same quarantine as ruff
+
+# The beeswarm solver is imported elsewhere, so mypy follows it past the file
+# exclude — silence it at the module level until it is absorbed or retired.
+[[tool.mypy.overrides]]
+module = "idd_figures.idd_beeswarm"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

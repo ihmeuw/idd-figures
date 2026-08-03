@@ -70,8 +70,15 @@ def test_raster_binned_with_mask():
     _, _, colors = binned_colormap(_BINS)
     idx = categorical_from_bins(arr, _BINS)  # integer bin indices, NaN elsewhere
     fig, ax = _geoax()
-    raster_painter(ax, idx, extent=extent, cmap=ListedColormap(colors), vmin=0,
-                   vmax=len(colors) - 1, masked_color="#f0f0f0")
+    raster_painter(
+        ax,
+        idx,
+        extent=extent,
+        cmap=ListedColormap(colors),
+        vmin=0,
+        vmax=len(colors) - 1,
+        masked_color="#f0f0f0",
+    )
     assert len(ax.images) == 1
     plt.close(fig)
 
