@@ -41,6 +41,19 @@ def test_colorbar_mode_shows_numeric_ticks():
     plt.close(fig)
 
 
+def test_colorbar_label_lands_on_the_inset():
+    from matplotlib.colors import Normalize
+
+    fig, ax = plt.subplots()
+    sm = plt.cm.ScalarMappable(norm=Normalize(0, 100))
+    sm.set_array([])
+    bin_legend_panel(ax, mappable=sm, use_colorbar=True, orientation="horizontal",
+                     cbar_label="HDI")
+    cax = ax.child_axes[0]
+    assert cax.get_xlabel() == "HDI"  # horizontal bar labels along x
+    plt.close(fig)
+
+
 def test_colorbar_inset_fills_swatch_rectangle():
     # continuous ramp should occupy the same band as discrete swatches: bin_bottom..bin_top
     from matplotlib.colors import Normalize

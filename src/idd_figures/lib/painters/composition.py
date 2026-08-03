@@ -1,17 +1,16 @@
-"""Ternary composition painter (mpltern engine) + standalone layout.
+"""Ternary composition painter (mpltern engine).
 
 Draws a scatter of three shares on a ternary axis, coloured by a fourth column.
 mpltern is an OPTIONAL dependency, imported lazily; the painter draws on a
 ternary Axes the layout creates (``projection="ternary"``), like a map's
 GeoAxes. ``gridlines`` is exposed so callers can turn mpltern's grid off and
-hand-draw their own later.
+hand-draw their own later. The standalone figure-owning layout lives in
+:mod:`idd_figures.lib.layouts.composition` (painters never own a Figure).
 """
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
-
-__all__ = ["composition_panel", "plot_composition"]
+__all__ = ["composition_panel"]
 
 
 def composition_panel(
@@ -44,19 +43,3 @@ def composition_panel(
     tax.set_rlabel(labels[2])
     tax.grid(visible=gridlines, linewidth=0.4)
     return tax
-
-
-def plot_composition(df, *, components, color_col, color_label=None, figsize=(9, 8), **opts):
-    """Standalone layout: create the ternary Axes, draw, add a colorbar; return fig.
-
-    Requires the optional ``mpltern`` dependency (imported here so the rest of the
-    library never needs it).
-    """
-    import mpltern  # noqa: F401  -- lazy/optional: registers the "ternary" projection
-
-    fig = plt.figure(figsize=figsize)
-    tax = fig.add_subplot(projection="ternary")
-    composition_panel(tax, df, components=components, color_col=color_col, **opts)
-    if tax.collections:
-        fig.colorbar(tax.collections[0], ax=tax, shrink=0.6, pad=0.1, label=color_label or color_col)
-    return fig

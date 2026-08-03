@@ -72,7 +72,7 @@ class Cell:
     at: tuple
     content: Any
     name: str | None = None
-    projection: str | None = None
+    projection: Any = None  # stock name (e.g. "polar") or a projection object (e.g. a cartopy CRS)
     sharex: str | None = None
     sharey: str | None = None
     title: str | None = None
@@ -84,7 +84,7 @@ class Grid:
     cells: list
     height_ratios: list | None = None
     width_ratios: list | None = None
-    margins: dict | None = None  # honoured only at the top level
+    margins: dict | None = None  # top level only; nested grids raise (the parent's cell IS the margin control)
     wspace: float | None = None
     hspace: float | None = None
 
@@ -131,6 +131,13 @@ def _make_gs(node, fig, parent_spec):
             height_ratios=node.height_ratios, width_ratios=node.width_ratios,
             wspace=node.wspace, hspace=node.hspace, **margins,
         )
+    if node.margins:
+        msg = (
+            "nested grids cannot take margins= (matplotlib's nested gridspec has no such "
+            "parameter); the parent's cell IS the margin control — shape it, or add spacer "
+            "rows/cols"
+        )
+        raise ValueError(msg)
     return GridSpecFromSubplotSpec(
         *node.shape, subplot_spec=parent_spec,
         height_ratios=node.height_ratios, width_ratios=node.width_ratios,
@@ -182,11 +189,14 @@ def _realize(node, fig, parent_spec, registry):
 def panel_grid(spec, *, figsize, fig=None):
     """Realise a grid tree ``spec`` into a Figure of the exact ``figsize``.
 
-    No auto-layout is applied. Returns the Figure; the caller owns IO.
+    No auto-layout is applied. Returns the Figure; the caller owns IO. Named
+    cells are retrievable afterwards via ``fig.axes_by_name`` (name -> Axes).
     """
     if fig is None:
         fig = plt.figure(figsize=figsize)
-    _realize(spec, fig, None, {})
+    registry = {}
+    _realize(spec, fig, None, registry)
+    fig.axes_by_name = registry  # post-layout annotation needs the named cells back
     return fig
 
 
@@ -206,6 +216,7 @@ def facet_grid(
     wspace=0.25,
     hspace=0.35,
     suptitle=None,
+    projection=None,
 ):
     """Facet ``painter`` over the unique values of ``row`` and/or ``col``.
 
@@ -213,9 +224,15 @@ def facet_grid(
     one set, wraps small-multiples into ``ncol`` columns. ``panel_kwargs`` is a
     dict or a callable ``info -> dict`` (where ``info`` is the ``{dim: value}`` for
     that cell); ``titles`` is a callable ``info -> str`` or a mapping. ``sharex`` /
-    ``sharey`` link all panels to the first. Returns the Figure.
+    ``sharey`` link all panels to the first. ``projection`` (stock name or a
+    projection object, e.g. a cartopy CRS) is applied to EVERY cell — required for
+    facets of maps/ternaries, incompatible with axis sharing. Returns the Figure.
     """
     from idd_figures.lib.frames import panel_slice
+
+    if projection is not None and (sharex or sharey):
+        msg = "sharex/sharey are not supported with projection= (projected axes cannot share plain ones)"
+        raise ValueError(msg)
 
     def pk(info):
         if panel_kwargs is None:
@@ -242,6 +259,7 @@ def facet_grid(
                 name = f"{i}_{j}"
                 cells.append(cell(
                     (i, j), paint(painter, panel_slice(data, info), **pk(info)), name=name,
+                    projection=projection,
                     sharex=(first if sharex else None), sharey=(first if sharey else None),
                     title=title_of(info),
                 ))
@@ -262,6 +280,7 @@ def facet_grid(
             name = f"{i}_{j}"
             cells.append(cell(
                 (i, j), paint(painter, panel_slice(data, info), **pk(info)), name=name,
+                projection=projection,
                 sharex=(first if sharex else None), sharey=(first if sharey else None),
                 title=title_of(info),
             ))

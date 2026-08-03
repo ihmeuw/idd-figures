@@ -54,3 +54,25 @@ def test_binned_diverging_remove_middle_keeps_n_colors():
     # n = 4 bins; remove_middle drops the central diverging pair but still yields n colours
     _, _, cols = binned_colormap([-2, -1, 0, 1, 2], diverging=True, remove_middle=True)
     assert len(cols) == 4
+
+
+def test_remove_middle_even_symmetric_per_side():
+    # even n=4: sample 6, drop the seam-straddling pair -> exactly 2 per side
+    wide = diverging_colors(6)
+    _, _, cols = binned_colormap([-2, -1, 0, 1, 2], diverging=True, remove_middle=True)
+    assert cols == wide[:2] + wide[4:]
+
+
+def test_remove_middle_odd_white_centre_symmetric_per_side():
+    # odd n=5: white centre bin + one colour dropped from EACH side -> 2 / white / 2
+    wide = diverging_colors(6)
+    _, _, cols = binned_colormap([-2, -1, 0, 1, 2, 3], diverging=True, remove_middle=True)
+    assert len(cols) == 5
+    assert cols[2] == (1.0, 1.0, 1.0, 1.0)
+    assert cols[:2] == wide[:2]
+    assert cols[3:] == wide[4:]
+
+
+def test_remove_middle_even_with_white_zero_raises():
+    with pytest.raises(ValueError, match="centre bin"):
+        binned_colormap([-2, -1, 0, 1, 2], diverging=True, remove_middle=True, force_white_zero=True)

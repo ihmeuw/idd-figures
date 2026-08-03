@@ -28,6 +28,9 @@ def save_figure(fig, path, *, formats=None, dpi=None, pad_inches=0.0, chmod=None
     if formats is None:
         formats = [path.suffix.lstrip(".")] if path.suffix else ["pdf"]
     base = path.with_suffix("")
+    if getattr(fig, "_idd_preview", False) and not base.name.endswith("_preview"):
+        # preview figures (map_panel/map_facet fast path) can never overwrite a final
+        base = base.with_name(base.name + "_preview")
     base.parent.mkdir(parents=True, exist_ok=True)
 
     written = []
@@ -37,8 +40,11 @@ def save_figure(fig, path, *, formats=None, dpi=None, pad_inches=0.0, chmod=None
         if fmt == "pdf":
             import matplotlib as mpl
 
-            mpl.rcParams["pdf.fonttype"] = 42  # editable text in the PDF
-        fig.savefig(out, format=fmt, dpi=d, bbox_inches=None, pad_inches=pad_inches)
+            # editable text in the PDF — scoped so the global rcParams never change
+            with mpl.rc_context({"pdf.fonttype": 42}):
+                fig.savefig(out, format=fmt, dpi=d, bbox_inches=None, pad_inches=pad_inches)
+        else:
+            fig.savefig(out, format=fmt, dpi=d, bbox_inches=None, pad_inches=pad_inches)
         if chmod is not None:
             os.chmod(out, chmod)  # noqa: PTH101 -- intentional, mode passed by caller
         written.append(out)

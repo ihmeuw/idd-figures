@@ -29,6 +29,8 @@ def bin_legend_panel(
     bin_bottom=0.45,
     bin_top=0.85,
     label_gap=0.08,
+    cbar_label=None,
+    cbar_label_fontsize=None,
 ):
     """Draw a discrete bin legend (default) or a colorbar onto ``ax``; return ``ax``.
 
@@ -52,6 +54,8 @@ def bin_legend_panel(
             cbar.set_ticklabels(labels, fontsize=fontsize)
         else:
             cbar.ax.tick_params(labelsize=fontsize)  # keep auto numeric ticks, just size them
+        if cbar_label:
+            cbar.set_label(cbar_label, fontsize=cbar_label_fontsize or fontsize)
         return ax
 
     if colors is None:

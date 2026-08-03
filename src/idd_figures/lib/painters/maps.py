@@ -7,8 +7,10 @@ layout owns geometry). Data prep (loading, merging, masking, reprojection) is th
 caller's job — these receive prepared GeoDataFrames / 2-D arrays.
 
 zorder discipline (load-bearing): ocean = 0, data (choropleth/raster) = 2,
-boundaries on top. Aspect is set to 'auto' so cartopy does not lock 1:1 and fight
-the GridSpec cell (the layout controls the map's height via the extent aspect).
+boundaries on top. Painters never touch the aspect: the LAYOUT sets it explicitly
+and derives the cell box to match the extent ("no automatic anything",
+.claude/DECISIONS.md 2026-08-02) — a mismatched box letterboxes visibly and the
+layout's guard raises.
 """
 
 from __future__ import annotations
@@ -20,7 +22,13 @@ import cartopy.feature as cfeature
 import numpy as np
 from shapely.geometry import box
 
-__all__ = ["basemap_painter", "choropleth_painter", "raster_painter", "disputed_boundary_painter"]
+__all__ = [
+    "basemap_painter",
+    "choropleth_painter",
+    "disputed_boundary_painter",
+    "map_cell_painter",
+    "raster_painter",
+]
 
 _PC = ccrs.PlateCarree()
 
@@ -48,7 +56,6 @@ def basemap_painter(
     the data so inland water bodies read as water rather than filled land.
     """
     ax.set_extent(extent, crs=_PC)
-    ax.set_aspect("auto")  # layout owns aspect; keep cartopy from locking 1:1
     if ocean:
         ax.add_feature(cfeature.OCEAN, facecolor=ocean_color, alpha=ocean_alpha, zorder=0)
     if lakes:
@@ -154,4 +161,52 @@ def disputed_boundary_painter(
     if len(clipped):
         clipped.boundary.plot(ax=ax, color=color, linewidth=linewidth, linestyle=linestyle,
                               transform=_PC, zorder=zorder)
+    return ax
+
+
+def map_cell_painter(  # noqa: PLR0913 -- the union of the composed painters' knobs; grouping adds ceremony
+    ax,
+    _data=None,
+    *,
+    extent,
+    gdf=None,
+    value_col=None,
+    raster=None,
+    raster_extent=None,
+    cmap=None,
+    norm=None,
+    base_admin_gdf=None,
+    boundary_gdf=None,
+    disputed_gdf=None,
+    ocean=True,
+    lakes=False,
+    coastlines=False,
+    borders=False,
+    masked_color=None,
+    missing_color=None,
+    draw_data=True,
+    panel_letter=None,
+    panel_letter_fontsize=24,
+):
+    """ONE complete map cell: basemap + (choropleth | raster) + disputed lines + letter.
+
+    The composite painter both ``map_panel`` and ``map_facet`` paint into a
+    layout-created GeoAxes (``_data`` exists so ``paint(map_cell_painter, None,
+    ...)`` works directly). ``draw_data=False`` skips the expensive data draw
+    for layout iteration. Never touches aspect or the Figure.
+    """
+    basemap_painter(ax, extent=extent, ocean=ocean, lakes=lakes, coastlines=coastlines,
+                    borders=borders, base_admin_gdf=base_admin_gdf)
+    if draw_data:
+        if gdf is not None:
+            choropleth_painter(ax, gdf, value_col=value_col, cmap=cmap, norm=norm,
+                               boundary_gdf=boundary_gdf, missing_color=missing_color)
+        elif raster is not None:
+            raster_painter(ax, raster, extent=raster_extent or extent, cmap=cmap,
+                           norm=norm, masked_color=masked_color, boundary_gdf=boundary_gdf)
+        if disputed_gdf is not None:
+            disputed_boundary_painter(ax, disputed_gdf, extent=extent)
+    if panel_letter:
+        ax.text(0.02, 0.98, panel_letter, transform=ax.transAxes, va="top", ha="left",
+                fontsize=panel_letter_fontsize, fontweight="bold")
     return ax

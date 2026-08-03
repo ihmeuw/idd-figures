@@ -201,7 +201,7 @@ def exemplar_nested_grid(panel_data=None, *, figsize=(12, 11)):
 
 def exemplar_composition(df=None):
     """Ternary composition triangle (requires the optional ``mpltern`` dependency)."""
-    from idd_figures.lib.painters.composition import plot_composition
+    from idd_figures.lib.layouts.composition import plot_composition
 
     df = ed.make_composition_df() if df is None else df
     return plot_composition(df, components=("health_index", "education_index", "income_index"),

@@ -89,6 +89,106 @@ def test_admin0_field_couples_raster_and_choropleth():
     plt.close("all")
 
 
+def test_map_panel_named_axes_box_matches_extent_and_aspect_explicit():
+    fig = map_panel(extent=[0, 6, 0, 4], ocean=False, draw_data=False)
+    ax = fig.axes_by_name["map"]
+    fw, fh = fig.get_size_inches()
+    pos = ax.get_position(original=True)
+    assert abs((pos.height * fh) / (pos.width * fw) - 4 / 6) < 1e-9  # box == extent aspect
+    assert ax.get_aspect() == 1.0  # explicit, never "auto"
+    plt.close(fig)
+
+
+def test_map_panel_aspect_breaking_margins_raise():
+    with pytest.raises(ValueError, match="aspect"):
+        map_panel(extent=[0, 6, 0, 4], ocean=False, draw_data=False,
+                  margins={"left": 0.125, "right": 0.9, "top": 0.93, "bottom": 0.08})
+
+
+def test_map_panel_aspect_breaking_hspace_raises():
+    cmap, norm, colors = binned_colormap([0, 50, 100])
+    with pytest.raises(ValueError, match="aspect"):
+        map_panel(extent=[0, 6, 0, 4], cmap=cmap, norm=norm, colors=colors,
+                  ocean=False, draw_data=False, title="t", hspace=0.3)
+
+
+def test_map_facet_rows_bars_aspect_and_names():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 25, 50, 75, 100])
+    p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}
+    fig = map_facet([
+        {"panels": [dict(p, title=t) for t in ("a", "b", "c")], "extent": SYNTHETIC_EXTENT,
+         "cbar": "shared", "cbar_label": "value"},
+        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "each", "cbar_label": "value"},
+    ], fig_width=12)
+    fw, fh = fig.get_size_inches()
+    want = (SYNTHETIC_EXTENT[3] - SYNTHETIC_EXTENT[2]) / (SYNTHETIC_EXTENT[1] - SYNTHETIC_EXTENT[0])
+    for nm in ("map:r0c0", "map:r0c1", "map:r0c2", "map:r1c0"):
+        pos = fig.axes_by_name[nm].get_position(original=True)
+        assert abs((pos.height * fh) / (pos.width * fw) - want) < 1e-9  # every box fits its extent
+    bar = fig.axes_by_name["cbar:r0"].get_position(original=True)
+    a = fig.axes_by_name["map:r0c0"].get_position(original=True)
+    c = fig.axes_by_name["map:r0c2"].get_position(original=True)
+    assert bar.x0 <= a.x0 + 1e-9  # shared bar cell = footprint of the served panels
+    assert bar.x1 >= c.x1 - 1e-9
+    assert "cbar:r1c0" in fig.axes_by_name  # "each" bars exist per panel
+    plt.close(fig)
+
+
+def test_map_facet_gaps_are_exactly_the_title_allowance_and_preview_marks():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, colors = binned_colormap([0, 25, 50, 75, 100])
+    p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm, "colors": colors}
+    title_h = 0.4
+    fig = map_facet([
+        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "shared"},
+        {"panels": [dict(p), dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": None},
+    ], fig_width=10, panel_title_h=title_h, preview=True)
+    assert getattr(fig, "_idd_preview", False)  # save_figure will suffix _preview
+    fw, fh = fig.get_size_inches()
+    top_map = fig.axes_by_name["map:r0c0"].get_position(original=True)
+    bar = fig.axes_by_name["cbar:r0"].get_position(original=True)
+    gap_in = (top_map.y0 - bar.y1) * fh
+    assert abs(gap_in - title_h) < 1e-9  # inter-row gap == the EXPLICIT title allowance
+    plt.close(fig)
+
+
+def test_map_facet_row_cbar_band_thins_the_ramp():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+    p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}
+    fig = map_facet([
+        {"panels": [dict(p)], "extent": SYNTHETIC_EXTENT, "cbar": "shared",
+         "cbar_band": (0.70, 0.92), "cbar_h": 0.7},
+    ], fig_width=10)
+    cell_ax = fig.axes_by_name["cbar:r0"]
+    ramp = cell_ax.child_axes[0].get_position()
+    cell_pos = cell_ax.get_position(original=True)
+    frac = ramp.height / cell_pos.height
+    assert abs(frac - (0.92 - 0.70)) < 0.02  # ramp thickness follows the row override
+    plt.close(fig)
+
+
+def test_map_facet_unknown_cbar_mode_raises():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+    with pytest.raises(ValueError, match="cbar mode"):
+        map_facet([{"panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
+                    "extent": SYNTHETIC_EXTENT, "cbar": "both"}])
+
+
 def test_world_choropleth_continuous_if_ne_available():
     from idd_figures.lib.examples import exemplar_world_choropleth
 

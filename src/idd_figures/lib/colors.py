@@ -61,6 +61,12 @@ def binned_colormap(  # noqa: PLR0913 — orthogonal keyword-only colormap optio
     ``create_*_colormap``). ``drop_light`` drops the lightest N colours from a
     sequential map; ``force_white_zero`` whitens the first bin (sequential) or the
     middle bin (diverging, odd bin count).
+
+    ``remove_middle`` is symmetric by construction — equal colour counts on each
+    side of the seam. Even bin counts drop the pair straddling the seam (n/2 per
+    side, no centre bin); odd bin counts get a white centre bin with one colour
+    dropped from EACH side (an odd count implies the white centre;
+    ``force_white_zero`` is redundant there and an error for even counts).
     """
     bins = np.asarray(bins, dtype="float64")
     n = len(bins) - 1
@@ -69,13 +75,19 @@ def binned_colormap(  # noqa: PLR0913 — orthogonal keyword-only colormap optio
         raise ValueError(msg)
     if diverging:
         if remove_middle:
-            # drop the central diverging pair (so an odd bin count has a clean centre)
-            wide = diverging_colors(n + 2, base_cmap or "RdBu_r")
-            mid = (n + 2) // 2
-            if force_white_zero:
-                colors = [*wide[: mid - 1], (1.0, 1.0, 1.0, 1.0), *wide[mid + 2 :]]
-            else:
+            if n % 2 == 0:
+                if force_white_zero:
+                    msg = "force_white_zero needs a centre bin; even bin counts have none"
+                    raise ValueError(msg)
+                # drop the pair straddling the seam -> n/2 colours per side
+                wide = diverging_colors(n + 2, base_cmap or "RdBu_r")
+                mid = (n + 2) // 2
                 colors = wide[: mid - 1] + wide[mid + 1 :]
+            else:
+                # odd: white centre bin, one colour dropped from EACH side of the seam
+                wide = diverging_colors(n + 1, base_cmap or "RdBu_r")
+                m = (n + 1) // 2
+                colors = [*wide[: m - 1], (1.0, 1.0, 1.0, 1.0), *wide[m + 1 :]]
         else:
             colors = diverging_colors(n, base_cmap or "RdBu_r")
             if force_white_zero and n % 2 == 1:
