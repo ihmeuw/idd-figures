@@ -196,6 +196,28 @@ def _panel_mappable(panel):
     return sm
 
 
+def _is_per_panel(value):
+    """True when a cbar_ticks/cbar_tick_labels entry is a list-of-lists (one per panel)."""
+    return isinstance(value, (list, tuple)) and bool(value) and isinstance(value[0], (list, tuple))
+
+
+def _per_panel_bar_arg(value, k, what):
+    """Broadcast a row-level cbar_ticks/cbar_tick_labels entry to one per panel.
+
+    A flat list applies to every bar in the row; a list-of-lists is per panel —
+    mirroring ``cbar_label``'s str-or-list semantics — so a mode="each" row whose
+    panels carry different scales can pin different ticks on each bar.
+    """
+    if value is None:
+        return [None] * k
+    if _is_per_panel(value):
+        if len(value) != k:
+            msg = f"{what}: {len(value)} per-panel entries for {k} panels"
+            raise ValueError(msg)
+        return list(value)
+    return [value] * k
+
+
 def _facet_geometry(heights, *, panel_title_h, bottom_pad_h, margins_lr, has_title):
     """Outer-grid geometry for ``map_facet``: figure height, margins, hspace, ratios.
 
@@ -288,8 +310,8 @@ def map_facet(
          "cbar_label": str | list[str],
          "cbar_h": inches,                                  # optional per-row cell height
          "cbar_band": (bin_bottom, bin_top),                # optional ramp thickness in the cell
-         "cbar_ticks": [values],                            # optional: pin continuous-bar ticks
-         "cbar_tick_labels": [str]}                         # optional: relabel exactly those ticks
+         "cbar_ticks": [values] | [[values], ...],          # optional: pin continuous-bar ticks
+         "cbar_tick_labels": [str] | [[str], ...]}          # optional: relabel exactly those ticks
 
     Everything is derived (``lib.layouts.geometry``): panel widths charge
     ``wspace`` against the mean panel, row heights follow the extent aspect in
@@ -302,7 +324,9 @@ def map_facet(
     drawn size inside the cell is the legend painter's inset knobs; a "shared"
     bar uses the FIRST panel's colour declaration; ``cbar_ticks`` /
     ``cbar_tick_labels`` pin a continuous bar's tick positions/labels (declared
-    values only — e.g. natural-unit ticks on a log ramp). Map cells get explicit
+    values only — e.g. natural-unit ticks on a log ramp); a list-of-lists is
+    per panel (mode "each" only), for rows whose bars carry different scales.
+    Map cells get explicit
     aspect (never "auto") and the box guard raises on mismatch. ``preview=True``
     skips data draws and Natural Earth features and marks the figure so
     ``io.save_figure`` suffixes ``_preview``. Named axes come back via
@@ -372,6 +396,9 @@ def map_facet(
         ticks = row.get("cbar_ticks")  # declared tick positions for continuous bars
         tick_labels = row.get("cbar_tick_labels")
         if mode == "shared":
+            if _is_per_panel(ticks) or _is_per_panel(tick_labels):
+                msg = 'per-panel cbar_ticks/cbar_tick_labels need cbar mode "each" (one bar per panel)'
+                raise ValueError(msg)
             outer_cells.append(
                 cell(
                     (out_i, 0),
@@ -388,6 +415,8 @@ def map_facet(
             )
         elif mode == "each":
             per = labels if isinstance(labels, (list, tuple)) else [labels] * k
+            per_ticks = _per_panel_bar_arg(ticks, k, "cbar_ticks")
+            per_tick_labels = _per_panel_bar_arg(tick_labels, k, "cbar_tick_labels")
             bar_row = grid(
                 (1, k),
                 [
@@ -398,8 +427,8 @@ def map_facet(
                             per[j],
                             cbar_fontsize,
                             band=band,
-                            ticks=ticks,
-                            tick_labels=tick_labels,
+                            ticks=per_ticks[j],
+                            tick_labels=per_tick_labels[j],
                         ),
                         name=f"cbar:r{i}c{j}",
                     )

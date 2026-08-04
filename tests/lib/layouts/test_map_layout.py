@@ -304,6 +304,77 @@ def test_map_facet_cbar_ticks_pin_natural_units_on_log_ramp():
     plt.close(fig)
 
 
+def test_map_facet_per_panel_cbar_ticks_pin_each_bar_independently():
+    import numpy as np
+    from matplotlib.colors import LogNorm
+
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    ticks = [[0.2, 0.5, 1, 2, 5, 10], [50, 100, 500, 1000, 5000, 10000, 50000]]
+    labels = [["0.2", "0.5", "1", "2", "5", "10"], ["50", "100", "500", "1k", "5k", "10k", "50k"]]
+    fig = map_facet(
+        [
+            {
+                "panels": [
+                    {"gdf": gdf, "value_col": "value", "cmap": "viridis", "norm": LogNorm(0.2, 10)},
+                    {
+                        "gdf": gdf,
+                        "value_col": "value",
+                        "cmap": "viridis",
+                        "norm": LogNorm(50, 50000),
+                    },
+                ],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "each",
+                "cbar_label": ["U5MR", "GDP"],
+                "cbar_ticks": ticks,
+                "cbar_tick_labels": labels,
+            }
+        ],
+        fig_width=10,
+        preview=True,
+    )
+    for j in range(2):
+        cax = fig.axes_by_name[f"cbar:r0c{j}"].child_axes[0]
+        assert np.allclose(cax.get_xticks(), ticks[j])  # each bar carries ITS OWN scale
+        assert [t.get_text() for t in cax.get_xticklabels()] == labels[j]
+    plt.close(fig)
+
+
+def test_map_facet_per_panel_cbar_ticks_reject_shared_and_length_mismatch():
+    from matplotlib.colors import LogNorm
+
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    p = {"gdf": gdf, "value_col": "value", "cmap": "viridis", "norm": LogNorm(0.2, 10)}
+    with pytest.raises(ValueError, match='need cbar mode "each"'):
+        map_facet(
+            [
+                {
+                    "panels": [dict(p)],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": "shared",
+                    "cbar_ticks": [[0.2, 1, 10]],
+                }
+            ]
+        )
+    with pytest.raises(ValueError, match="per-panel entries for"):
+        map_facet(
+            [
+                {
+                    "panels": [dict(p), dict(p)],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": "each",
+                    "cbar_ticks": [[0.2, 1, 10]],
+                }
+            ]
+        )
+
+
 def test_map_facet_cbar_ticks_on_discrete_row_raise():
     from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
     from idd_figures.lib.layouts.maps import map_facet
