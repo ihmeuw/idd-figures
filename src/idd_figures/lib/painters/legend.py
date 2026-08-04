@@ -31,12 +31,15 @@ def bin_legend_panel(
     label_gap=0.08,
     cbar_label=None,
     cbar_label_fontsize=None,
+    ticks=None,
 ):
     """Draw a discrete bin legend (default) or a colorbar onto ``ax``; return ``ax``.
 
     Discrete (``use_colorbar=False``): centred rectangle swatches from ``colors`` with
     ``labels`` beneath — ports the map ``draw_legend_bins`` behaviour, generalised.
-    Colorbar (``use_colorbar=True``): ``fig.colorbar(mappable, cax=ax, ...)``.
+    Colorbar (``use_colorbar=True``): ``fig.colorbar(mappable, cax=ax, ...)``;
+    ``ticks`` pins the tick POSITIONS (data units — e.g. natural-unit ticks on a
+    log norm), and ``labels`` then relabels exactly those positions.
     """
     ax.axis("off")
     if use_colorbar:
@@ -50,6 +53,8 @@ def bin_legend_panel(
         cax = ax.inset_axes([margin, bin_bottom, 1 - 2 * margin, bin_top - bin_bottom])
         cbar = ax.figure.colorbar(mappable, cax=cax, orientation=orientation)
         cbar.outline.set_linewidth(edge_lw)
+        if ticks is not None:
+            cbar.set_ticks(list(ticks))
         if labels is not None:
             cbar.set_ticklabels(labels, fontsize=fontsize)
         else:
@@ -58,6 +63,9 @@ def bin_legend_panel(
             cbar.set_label(cbar_label, fontsize=cbar_label_fontsize or fontsize)
         return ax
 
+    if ticks is not None:
+        msg = "ticks= applies to the colorbar mode; discrete legends label bins via labels="
+        raise ValueError(msg)
     if colors is None:
         msg = "discrete legend requires colors="
         raise ValueError(msg)

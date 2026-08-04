@@ -53,6 +53,31 @@ def test_colorbar_label_lands_on_the_inset():
     plt.close(fig)
 
 
+def test_colorbar_ticks_pin_positions_and_labels():
+    import numpy as np
+    from matplotlib.colors import Normalize
+
+    fig, ax = plt.subplots()
+    sm = plt.cm.ScalarMappable(norm=Normalize(0, 100))
+    sm.set_array([])
+    ticks = [0, 25, 50, 100]
+    bin_legend_panel(ax, mappable=sm, use_colorbar=True, ticks=ticks, labels=["a", "b", "c", "d"])
+    cax = ax.child_axes[0]
+    assert np.allclose(cax.get_xticks(), ticks)  # positions are the declared values
+    assert [t.get_text() for t in cax.get_xticklabels()] == ["a", "b", "c", "d"]
+    plt.close(fig)
+
+
+def test_discrete_mode_rejects_ticks():
+    import pytest
+
+    _, _, colors = binned_colormap([0, 50, 100])
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="colorbar mode"):
+        bin_legend_panel(ax, colors=colors, ticks=[0, 50, 100])
+    plt.close(fig)
+
+
 def test_colorbar_inset_fills_swatch_rectangle():
     # continuous ramp should occupy the same band as discrete swatches: bin_bottom..bin_top
     from matplotlib.colors import Normalize

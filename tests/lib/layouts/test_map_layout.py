@@ -231,6 +231,125 @@ def test_map_facet_row_cbar_band_thins_the_ramp():
     plt.close(fig)
 
 
+def test_map_facet_title_band_is_its_own_cell_and_grows_fig_by_title_h():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+
+    def rows():
+        return [
+            {
+                "panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "shared",
+            }
+        ]
+
+    title_h, panel_title_h = 0.6, 0.4
+    bare = map_facet(rows(), fig_width=10, panel_title_h=panel_title_h, preview=True)
+    fig = map_facet(
+        rows(),
+        fig_width=10,
+        title="Spec title",
+        title_h=title_h,
+        panel_title_h=panel_title_h,
+        preview=True,
+    )
+    _, fh_bare = bare.get_size_inches()
+    fw, fh = fig.get_size_inches()
+    assert abs(fh - (fh_bare + title_h)) < 1e-9  # figure grows by EXACTLY the title allowance
+    band = fig.axes_by_name["title"].get_position(original=True)
+    assert abs((1 - band.y1) * fh) < 1e-9  # band is flush with the top: no margin slack above
+    assert abs(band.height * fh - title_h) < 1e-9  # band height == declared inches
+    top_map = fig.axes_by_name["map:r0c0"].get_position(original=True)
+    gap_in = (band.y0 - top_map.y1) * fh
+    assert abs(gap_in - panel_title_h) < 1e-9  # gap below band == the panel-title allowance
+    want = (SYNTHETIC_EXTENT[3] - SYNTHETIC_EXTENT[2]) / (SYNTHETIC_EXTENT[1] - SYNTHETIC_EXTENT[0])
+    assert abs((top_map.height * fh) / (top_map.width * fw) - want) < 1e-9  # aspect survives
+    plt.close(bare)
+    plt.close(fig)
+
+
+def test_map_facet_cbar_ticks_pin_natural_units_on_log_ramp():
+    import numpy as np
+    from matplotlib.colors import LogNorm
+
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    ticks = [0.2, 0.5, 1, 2, 5, 10]
+    labels = ["0.2", "0.5", "1", "2", "5", "10"]
+    fig = map_facet(
+        [
+            {
+                "panels": [
+                    {"gdf": gdf, "value_col": "value", "cmap": "viridis", "norm": LogNorm(0.2, 10)}
+                ],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "shared",
+                "cbar_label": "ratio",
+                "cbar_ticks": ticks,
+                "cbar_tick_labels": labels,
+            }
+        ],
+        fig_width=10,
+        preview=True,
+    )
+    cax = fig.axes_by_name["cbar:r0"].child_axes[0]  # the ramp inset inside the bar cell
+    assert np.allclose(cax.get_xticks(), ticks)  # positions in data (natural) units
+    assert [t.get_text() for t in cax.get_xticklabels()] == labels
+    plt.close(fig)
+
+
+def test_map_facet_cbar_ticks_on_discrete_row_raise():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, colors = binned_colormap([0, 50, 100])
+    with pytest.raises(ValueError, match="discrete rows use bin_labels"):
+        map_facet(
+            [
+                {
+                    "panels": [
+                        {
+                            "gdf": gdf,
+                            "value_col": "value",
+                            "cmap": cmap,
+                            "norm": norm,
+                            "colors": colors,
+                        }
+                    ],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": "shared",
+                    "cbar_ticks": [0, 50, 100],
+                }
+            ]
+        )
+
+
+def test_map_facet_cbar_tick_labels_require_ticks():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+    with pytest.raises(ValueError, match="requires cbar_ticks"):
+        map_facet(
+            [
+                {
+                    "panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": "shared",
+                    "cbar_tick_labels": ["a", "b"],
+                }
+            ]
+        )
+
+
 def test_map_facet_unknown_cbar_mode_raises():
     from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
     from idd_figures.lib.layouts.maps import map_facet

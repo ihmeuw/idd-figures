@@ -196,19 +196,45 @@ def _panel_mappable(panel):
     return sm
 
 
+def _facet_geometry(heights, *, panel_title_h, bottom_pad_h, margins_lr, has_title):
+    """Outer-grid geometry for ``map_facet``: figure height, margins, hspace, ratios.
+
+    Every inter-row gap is exactly the ``panel_title_h`` allowance. Without a
+    title band the top margin reserves that same allowance for the first row's
+    panel titles; WITH one, the gap below the band already provides it, so the
+    top margin reserves nothing and the figure grows by exactly the band height.
+    """
+    n = len(heights)
+    content = sum(heights)
+    hspace = 0.0 if n == 1 else panel_title_h / (content / n)
+    top_allow_h = 0.0 if has_title else panel_title_h
+    fig_h = content + (n - 1) * panel_title_h + top_allow_h + bottom_pad_h
+    margins = {**margins_lr, "top": 1 - top_allow_h / fig_h, "bottom": bottom_pad_h / fig_h}
+    _, ratios = solve_figure(heights, margins=margins, hspace=hspace)
+    return fig_h, margins, hspace, ratios
+
+
 # ramp band inside a bar cell: high enough that ticks + label fit BELOW it,
 # inside the same cell — a bar's ink never leaks into the inter-row gap
 _BAR_BAND = {"bin_bottom": 0.55, "bin_top": 0.95}
 
 
-def _bar_content(panel, bar_label, fontsize, band=None):
+def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=None):
     """Grid content for one colorbar/legend cell: discrete swatches if the panel
     declares ``colors`` (the house default), else a continuous bar from cmap/norm.
 
     ``band`` overrides the ramp's (bin_bottom, bin_top) within the cell — the
-    knob for "the bar is too thick/thin" without touching the cell's height."""
+    knob for "the bar is too thick/thin" without touching the cell's height.
+    ``ticks``/``tick_labels`` pin the continuous bar's tick positions (data
+    units) and their labels — DECLARED values only, e.g. natural-unit ticks on
+    a log norm; they have no meaning for discrete rows (``bin_labels`` there)."""
     kw = dict(_BAR_BAND) if band is None else {"bin_bottom": band[0], "bin_top": band[1]}
     if panel.get("colors") is not None:
+        if ticks is not None or tick_labels is not None:
+            msg = (
+                "cbar_ticks/cbar_tick_labels apply to continuous bars; discrete rows use bin_labels"
+            )
+            raise ValueError(msg)
         return paint(
             _legend_paint,
             None,
@@ -217,6 +243,9 @@ def _bar_content(panel, bar_label, fontsize, band=None):
             fontsize=fontsize,
             **kw,
         )
+    if tick_labels is not None and ticks is None:
+        msg = "cbar_tick_labels requires cbar_ticks (labels relabel exactly those positions)"
+        raise ValueError(msg)
     return paint(
         _legend_paint,
         None,
@@ -224,6 +253,8 @@ def _bar_content(panel, bar_label, fontsize, band=None):
         use_colorbar=True,
         cbar_label=bar_label,
         fontsize=fontsize,
+        ticks=ticks,
+        labels=tick_labels,
         **kw,
     )
 
@@ -234,6 +265,9 @@ def map_facet(
     fig_width=16.0,
     projection=None,
     wspace=0.02,
+    title=None,
+    title_h=0.6,
+    title_fontsize=22,
     panel_title_h=0.4,
     cbar_h=0.85,
     bottom_pad_h=0.15,
@@ -253,25 +287,37 @@ def map_facet(
          "cbar": "shared" | "each" | None,
          "cbar_label": str | list[str],
          "cbar_h": inches,                                  # optional per-row cell height
-         "cbar_band": (bin_bottom, bin_top)}                # optional ramp thickness in the cell
+         "cbar_band": (bin_bottom, bin_top),                # optional ramp thickness in the cell
+         "cbar_ticks": [values],                            # optional: pin continuous-bar ticks
+         "cbar_tick_labels": [str]}                         # optional: relabel exactly those ticks
 
     Everything is derived (``lib.layouts.geometry``): panel widths charge
     ``wspace`` against the mean panel, row heights follow the extent aspect in
     projected units, and inter-row gaps are an EXPLICIT title allowance
     (``panel_title_h`` inches — titles never survive on accidental slack).
+    ``title`` adds a figure-level title band as its OWN spanning grid cell
+    (``title_h`` inches; no title, no row — the figure grows by exactly
+    ``title_h``), never a ``suptitle`` floating on margin slack.
     Colorbars/legends are grid CELLS spanning the panels they serve; their
     drawn size inside the cell is the legend painter's inset knobs; a "shared"
-    bar uses the FIRST panel's colour declaration. Map cells get explicit
+    bar uses the FIRST panel's colour declaration; ``cbar_ticks`` /
+    ``cbar_tick_labels`` pin a continuous bar's tick positions/labels (declared
+    values only — e.g. natural-unit ticks on a log ramp). Map cells get explicit
     aspect (never "auto") and the box guard raises on mismatch. ``preview=True``
     skips data draws and Natural Earth features and marks the figure so
     ``io.save_figure`` suffixes ``_preview``. Named axes come back via
-    ``fig.axes_by_name`` (defaults ``map:r{i}c{j}`` / ``cbar:r{i}[c{j}]``).
+    ``fig.axes_by_name`` (defaults ``map:r{i}c{j}`` / ``cbar:r{i}[c{j}]``;
+    the title band is ``"title"``).
     """
     proj = projection or ccrs.PlateCarree()
     margins_lr = {"left": side_margins[0], "right": side_margins[1]}
 
     outer_cells, heights, map_names = [], [], []
     out_i = 0
+    if title:
+        outer_cells.append(cell((0, 0), label(title, fontsize=title_fontsize), name="title"))
+        heights.append(title_h)
+        out_i = 1
     for i, row in enumerate(rows):
         panels, extent = row["panels"], row["extent"]
         k = len(panels)
@@ -323,11 +369,20 @@ def map_facet(
             continue
         labels = row.get("cbar_label")
         band = row.get("cbar_band")  # (bin_bottom, bin_top) of the ramp within its cell
+        ticks = row.get("cbar_ticks")  # declared tick positions for continuous bars
+        tick_labels = row.get("cbar_tick_labels")
         if mode == "shared":
             outer_cells.append(
                 cell(
                     (out_i, 0),
-                    _bar_content(panels[0], labels, cbar_fontsize, band=band),
+                    _bar_content(
+                        panels[0],
+                        labels,
+                        cbar_fontsize,
+                        band=band,
+                        ticks=ticks,
+                        tick_labels=tick_labels,
+                    ),
                     name=f"cbar:r{i}",
                 )
             )
@@ -338,7 +393,14 @@ def map_facet(
                 [
                     cell(
                         (0, j),
-                        _bar_content(p, per[j], cbar_fontsize, band=band),
+                        _bar_content(
+                            p,
+                            per[j],
+                            cbar_fontsize,
+                            band=band,
+                            ticks=ticks,
+                            tick_labels=tick_labels,
+                        ),
                         name=f"cbar:r{i}c{j}",
                     )
                     for j, p in enumerate(panels)
@@ -352,16 +414,16 @@ def map_facet(
         heights.append(row.get("cbar_h", cbar_h))
         out_i += 1
 
-    n = len(heights)
-    content = sum(heights)
-    hspace = (
-        0.0 if n == 1 else panel_title_h / (content / n)
-    )  # every gap = exactly the title allowance
-    fig_h = content + (n - 1) * panel_title_h + panel_title_h + bottom_pad_h
-    margins = {**margins_lr, "top": 1 - panel_title_h / fig_h, "bottom": bottom_pad_h / fig_h}
-    _, ratios = solve_figure(heights, margins=margins, hspace=hspace)
-
-    spec = grid((n, 1), outer_cells, height_ratios=ratios, margins=margins, hspace=hspace)
+    fig_h, margins, hspace, ratios = _facet_geometry(
+        heights,
+        panel_title_h=panel_title_h,
+        bottom_pad_h=bottom_pad_h,
+        margins_lr=margins_lr,
+        has_title=bool(title),
+    )
+    spec = grid(
+        (len(heights), 1), outer_cells, height_ratios=ratios, margins=margins, hspace=hspace
+    )
     fig = panel_grid(spec, figsize=(fig_width, fig_h))
     if preview:
         fig._idd_preview = True  # noqa: SLF001 -- own convention; save_figure suffixes _preview
