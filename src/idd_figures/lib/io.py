@@ -9,13 +9,28 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from matplotlib.figure import Figure
 
 __all__ = ["save_figure"]
 
 _DEFAULT_DPI = {"pdf": 720, "png": 360}
 
 
-def save_figure(fig, path, *, formats=None, dpi=None, pad_inches=0.0, chmod=None, thumbnail=0.0):
+def save_figure(
+    fig: Figure,
+    path: str | os.PathLike[str],
+    *,
+    formats: Sequence[str] | None = None,
+    dpi: float | None = None,
+    pad_inches: float = 0.0,
+    chmod: int | None = None,
+    thumbnail: float = 0.0,
+) -> list[Path]:
     """Save ``fig`` to ``path`` in one or more formats; return the written paths.
 
     ``path`` may be given with or without an extension. ``formats`` defaults to
@@ -24,16 +39,16 @@ def save_figure(fig, path, *, formats=None, dpi=None, pad_inches=0.0, chmod=None
     applied only if given. ``thumbnail`` in ``(0, 1]`` writes an extra downscaled
     PNG alongside any PNG output (lazy PIL import).
     """
-    path = Path(path)
+    target = Path(path)
     if formats is None:
-        formats = [path.suffix.lstrip(".")] if path.suffix else ["pdf"]
-    base = path.with_suffix("")
+        formats = [target.suffix.lstrip(".")] if target.suffix else ["pdf"]
+    base = target.with_suffix("")
     if getattr(fig, "_idd_preview", False) and not base.name.endswith("_preview"):
         # preview figures (map_panel/map_facet fast path) can never overwrite a final
         base = base.with_name(base.name + "_preview")
     base.parent.mkdir(parents=True, exist_ok=True)
 
-    written = []
+    written: list[Path] = []
     for fmt in formats:
         out = base.with_suffix(f".{fmt}")
         d = dpi if dpi is not None else _DEFAULT_DPI.get(fmt, 300)
@@ -53,7 +68,7 @@ def save_figure(fig, path, *, formats=None, dpi=None, pad_inches=0.0, chmod=None
     return written
 
 
-def _save_thumbnail(png_path, fraction, dpi):
+def _save_thumbnail(png_path: Path, fraction: float, dpi: float) -> Path:
     from PIL import Image  # lazy/optional dependency
 
     img = Image.open(png_path)
