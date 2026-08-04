@@ -83,6 +83,74 @@ def test_raster_binned_with_mask():
     plt.close(fig)
 
 
+def test_map_cell_boundary_style_reaches_the_overlay():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.painters.maps import map_cell_painter
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap(_BINS)
+    fig, ax = _geoax()
+    map_cell_painter(
+        ax,
+        extent=SYNTHETIC_EXTENT,
+        gdf=gdf,
+        value_col="value",
+        cmap=cmap,
+        norm=norm,
+        boundary_gdf=gdf,
+        ocean=False,
+        boundary_style={"linewidth": 1.2, "color": "red"},
+    )
+    overlay = ax.collections[-1]  # boundary overlay draws last (zorder above the data)
+    assert overlay.get_linewidths()[0] == 1.2
+    plt.close(fig)
+
+
+def test_map_cell_letter_style_overrides_defaults():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT
+    from idd_figures.lib.painters.maps import map_cell_painter
+
+    fig, ax = _geoax()
+    map_cell_painter(
+        ax,
+        extent=SYNTHETIC_EXTENT,
+        ocean=False,
+        draw_data=False,
+        panel_letter="A",
+        letter_style={"fontsize": 30, "color": "blue", "x": 0.5},
+    )
+    (txt,) = [t for t in ax.texts if t.get_text() == "A"]
+    assert txt.get_fontsize() == 30
+    assert txt.get_position()[0] == 0.5
+    plt.close(fig)
+
+
+def test_map_cell_unknown_style_key_raises():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT
+    from idd_figures.lib.painters.maps import map_cell_painter
+
+    fig, ax = _geoax()
+    with pytest.raises(ValueError, match="ocean_style: unknown style keys"):
+        map_cell_painter(ax, extent=SYNTHETIC_EXTENT, ocean=False, ocean_style={"colour": "red"})
+    plt.close(fig)
+
+
+def test_basemap_admin1_style_overrides_hardcoded_default():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+
+    gdf = make_synthetic_continents()
+    fig, ax = _geoax()
+    basemap_painter(
+        ax,
+        extent=SYNTHETIC_EXTENT,
+        ocean=False,
+        admin1_gdf=gdf,
+        admin1_style={"linewidth": 0.9},
+    )
+    assert ax.collections[-1].get_linewidths()[0] == 0.9
+    plt.close(fig)
+
+
 def test_disputed_clips_and_draws():
     gdf = ed.make_admin_polygons()  # reuse polygons as stand-in disputed boundaries
     fig, ax = _geoax()

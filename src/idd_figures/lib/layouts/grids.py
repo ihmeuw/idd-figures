@@ -77,6 +77,7 @@ class Cell:
     sharex: str | None = None
     sharey: str | None = None
     title: str | None = None
+    title_kwargs: dict | None = None  # passed to ax.set_title (fontsize, fontweight, pad, ...)
 
 
 @dataclass
@@ -200,7 +201,7 @@ def _realize(node, fig, parent_spec, registry):
             fig.colorbar(content.mappable, cax=ax, **content.kwargs)
 
         if c.title:
-            ax.set_title(c.title)
+            ax.set_title(c.title, **(c.title_kwargs or {}))
 
 
 def panel_grid(spec, *, figsize, fig=None):
@@ -228,6 +229,7 @@ def facet_grid(
     ncol=None,
     panel_kwargs=None,
     titles=None,
+    title_style=None,
     figsize=(12, 8),
     margins=None,
     wspace=0.25,
@@ -240,8 +242,9 @@ def facet_grid(
     With both ``row`` and ``col`` set, builds a ``len(row) x len(col)`` grid; with
     one set, wraps small-multiples into ``ncol`` columns. ``panel_kwargs`` is a
     dict or a callable ``info -> dict`` (where ``info`` is the ``{dim: value}`` for
-    that cell); ``titles`` is a callable ``info -> str`` or a mapping. ``sharex`` /
-    ``sharey`` link all panels to the first. ``projection`` (stock name or a
+    that cell); ``titles`` is a callable ``info -> str`` or a mapping, and
+    ``title_style`` (fontsize, fontweight, pad, ...) styles every panel title.
+    ``sharex`` / ``sharey`` link all panels to the first. ``projection`` (stock name or a
     projection object, e.g. a cartopy CRS) is applied to EVERY cell — required for
     facets of maps/ternaries, incompatible with axis sharing. Returns the Figure.
     """
@@ -283,6 +286,7 @@ def facet_grid(
                         sharex=(first if sharex else None),
                         sharey=(first if sharey else None),
                         title=title_of(info),
+                        title_kwargs=title_style,
                     )
                 )
                 first = first or name
@@ -309,6 +313,7 @@ def facet_grid(
                     sharex=(first if sharex else None),
                     sharey=(first if sharey else None),
                     title=title_of(info),
+                    title_kwargs=title_style,
                 )
             )
             first = first or name

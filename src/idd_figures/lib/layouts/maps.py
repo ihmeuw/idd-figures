@@ -22,6 +22,48 @@ from idd_figures.lib.layouts.geometry import (
 from idd_figures.lib.layouts.grids import cell, grid, label, paint, panel_grid
 from idd_figures.lib.painters.legend import bin_legend_panel
 from idd_figures.lib.painters.maps import map_cell_painter
+from idd_figures.lib.styles import merge_styles, style_kwargs
+
+# bar_style keys ARE bin_legend_panel kwargs (identity map = validation only)
+_BAR_STYLE = {
+    k: k
+    for k in (
+        "orientation",
+        "edgecolor",
+        "edge_lw",
+        "fontsize",
+        "spacing",
+        "margin",
+        "bin_bottom",
+        "bin_top",
+        "label_gap",
+        "cbar_label_fontsize",
+    )
+}
+
+# map-cell concern dicts that cascade figure -> row -> panel (key-level merge)
+_CELL_CONCERNS = (
+    "ocean_style",
+    "backdrop_style",
+    "coastline_style",
+    "border_style",
+    "admin1_style",
+    "boundary_style",
+    "poly_style",
+    "disputed_style",
+    "letter_style",
+)
+
+
+def _cascade_styles(fig_styles, row, panel):
+    """One merged dict per map-cell concern: figure -> row -> panel, panel wins per key."""
+    out = {}
+    for c in _CELL_CONCERNS:
+        merged = merge_styles(fig_styles.get(c), row.get(c), panel.get(c))
+        if merged:
+            out[c] = merged
+    return out
+
 
 __all__ = ["map_facet", "map_panel"]
 
@@ -59,6 +101,7 @@ def map_panel(
     raster=None,
     raster_extent=None,
     base_admin_gdf=None,
+    admin1_gdf=None,
     boundary_gdf=None,
     disputed_gdf=None,
     ocean=True,
@@ -66,7 +109,21 @@ def map_panel(
     coastlines=False,
     borders=False,
     masked_color=None,
+    masked_alpha=1.0,
     missing_color=None,
+    ocean_style=None,
+    backdrop_style=None,
+    coastline_style=None,
+    border_style=None,
+    admin1_style=None,
+    boundary_style=None,
+    poly_style=None,
+    disputed_style=None,
+    letter_style=None,
+    title_style=None,
+    subtitle_style=None,
+    legend_title_style=None,
+    bar_style=None,
     fig_width=12,
     title_h=0.5,
     subtitle_h=0.0,
@@ -97,7 +154,15 @@ def map_panel(
     zero height (or no text) is omitted. ``draw_data=False`` renders the full layout
     but skips the expensive map draw (fast layout iteration). Heights are inches;
     the map row's height follows ``fig_width * (lat-span / lon-span)`` so the map is
-    undistorted. The caller saves (see ``io.save_figure``)."""
+    undistorted. The caller saves (see ``io.save_figure``).
+
+    Style dicts (same vocabulary/cascade as ``map_facet``, DECISIONS 2026-08-04):
+    the map-cell concerns (``ocean_style``, ``backdrop_style``, ``coastline_style``,
+    ``border_style``, ``admin1_style``, ``boundary_style``, ``poly_style``,
+    ``disputed_style``, ``letter_style``) flow to ``map_cell_painter``;
+    ``title_style``/``subtitle_style``/``legend_title_style`` are text kwargs that
+    win over the matching ``*_fontsize``; ``bar_style`` carries any
+    ``bin_legend_panel`` knob and wins over ``legend_fontsize``."""
     aspect = (extent[3] - extent[2]) / (extent[1] - extent[0])
     map_h = fig_width * aspect
 
@@ -112,6 +177,7 @@ def map_panel(
             cmap=cmap,
             norm=norm,
             base_admin_gdf=base_admin_gdf,
+            admin1_gdf=admin1_gdf,
             boundary_gdf=boundary_gdf,
             disputed_gdf=disputed_gdf,
             ocean=ocean,
@@ -119,28 +185,42 @@ def map_panel(
             coastlines=coastlines,
             borders=borders,
             masked_color=masked_color,
+            masked_alpha=masked_alpha,
             missing_color=missing_color,
             draw_data=draw_data,
             panel_letter=panel_letter,
             panel_letter_fontsize=panel_letter_fontsize,
+            ocean_style=ocean_style,
+            backdrop_style=backdrop_style,
+            coastline_style=coastline_style,
+            border_style=border_style,
+            admin1_style=admin1_style,
+            boundary_style=boundary_style,
+            poly_style=poly_style,
+            disputed_style=disputed_style,
+            letter_style=letter_style,
         )
 
     def _draw_legend(ax, _data=None):
+        kw = {"fontsize": legend_fontsize}
+        kw.update(style_kwargs(bar_style, _BAR_STYLE, "bar_style"))
         return bin_legend_panel(
             ax,
             colors=colors,
             labels=bin_labels,
             mappable=mappable,
             use_colorbar=use_colorbar,
-            fontsize=legend_fontsize,
+            **kw,
         )
 
     have_legend = colors is not None or mappable is not None
     rows = []
     if title and title_h > 0:
-        rows.append({"h": title_h, "content": label(title, fontsize=title_fontsize)})
+        kw = {"fontsize": title_fontsize, **(title_style or {})}
+        rows.append({"h": title_h, "content": label(title, **kw)})
     if subtitle and subtitle_h > 0:
-        rows.append({"h": subtitle_h, "content": label(subtitle, fontsize=subtitle_fontsize)})
+        kw = {"fontsize": subtitle_fontsize, **(subtitle_style or {})}
+        rows.append({"h": subtitle_h, "content": label(subtitle, **kw)})
     rows.append(
         {"h": map_h, "content": paint(_draw_map, None), "proj": ccrs.PlateCarree(), "name": "map"}
     )
@@ -150,7 +230,12 @@ def map_panel(
         else None
     )
     title_cell = (
-        {"h": legend_title_h, "content": label(legend_title, fontsize=legend_title_fontsize)}
+        {
+            "h": legend_title_h,
+            "content": label(
+                legend_title, **{"fontsize": legend_title_fontsize, **(legend_title_style or {})}
+            ),
+        }
         if legend_title and legend_title_h > 0
         else None
     )
@@ -218,6 +303,63 @@ def _per_panel_bar_arg(value, k, what):
     return [value] * k
 
 
+def _bar_cell(row, panels, out_i, i, wspace, cbar_fontsize, fig_bar_style):
+    """The colorbar cell for one map row: one spanning cell ("shared") or a 1xk
+    grid of per-panel cells ("each"). ``bar_style`` cascades figure -> row ->
+    panel ("each" only); per-panel cbar_ticks/cbar_tick_labels are "each" only."""
+    mode = row["cbar"]
+    k = len(panels)
+    labels = row.get("cbar_label")
+    band = row.get("cbar_band")  # (bin_bottom, bin_top) of the ramp within its cell
+    ticks = row.get("cbar_ticks")  # declared tick positions for continuous bars
+    tick_labels = row.get("cbar_tick_labels")
+    row_bar_style = merge_styles(fig_bar_style, row.get("bar_style"))
+    if mode == "shared":
+        if _is_per_panel(ticks) or _is_per_panel(tick_labels):
+            msg = 'per-panel cbar_ticks/cbar_tick_labels need cbar mode "each" (one bar per panel)'
+            raise ValueError(msg)
+        return cell(
+            (out_i, 0),
+            _bar_content(
+                panels[0],
+                labels,
+                cbar_fontsize,
+                band=band,
+                ticks=ticks,
+                tick_labels=tick_labels,
+                style=row_bar_style,
+            ),
+            name=f"cbar:r{i}",
+        )
+    if mode == "each":
+        per = labels if isinstance(labels, (list, tuple)) else [labels] * k
+        per_ticks = _per_panel_bar_arg(ticks, k, "cbar_ticks")
+        per_tick_labels = _per_panel_bar_arg(tick_labels, k, "cbar_tick_labels")
+        bar_row = grid(
+            (1, k),
+            [
+                cell(
+                    (0, j),
+                    _bar_content(
+                        p,
+                        per[j],
+                        cbar_fontsize,
+                        band=band,
+                        ticks=per_ticks[j],
+                        tick_labels=per_tick_labels[j],
+                        style=merge_styles(row_bar_style, p.get("bar_style")),
+                    ),
+                    name=f"cbar:r{i}c{j}",
+                )
+                for j, p in enumerate(panels)
+            ],
+            wspace=wspace,
+        )
+        return cell((out_i, 0), bar_row)
+    msg = f"unknown cbar mode {mode!r}: use 'shared', 'each', or None"
+    raise ValueError(msg)
+
+
 def _facet_geometry(heights, *, panel_title_h, bottom_pad_h, margins_lr, has_title):
     """Outer-grid geometry for ``map_facet``: figure height, margins, hspace, ratios.
 
@@ -241,7 +383,7 @@ def _facet_geometry(heights, *, panel_title_h, bottom_pad_h, margins_lr, has_tit
 _BAR_BAND = {"bin_bottom": 0.55, "bin_top": 0.95}
 
 
-def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=None):
+def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=None, style=None):
     """Grid content for one colorbar/legend cell: discrete swatches if the panel
     declares ``colors`` (the house default), else a continuous bar from cmap/norm.
 
@@ -249,8 +391,13 @@ def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=
     knob for "the bar is too thick/thin" without touching the cell's height.
     ``ticks``/``tick_labels`` pin the continuous bar's tick positions (data
     units) and their labels — DECLARED values only, e.g. natural-unit ticks on
-    a log norm; they have no meaning for discrete rows (``bin_labels`` there)."""
+    a log norm; they have no meaning for discrete rows (``bin_labels`` there).
+    ``style`` is the cascaded ``bar_style``: any ``bin_legend_panel`` knob
+    (edge_lw, spacing, label_gap, fontsize, bin_bottom/bin_top, ...) — it wins
+    over ``band`` and over the figure-wide ``cbar_fontsize``."""
     kw = dict(_BAR_BAND) if band is None else {"bin_bottom": band[0], "bin_top": band[1]}
+    kw["fontsize"] = fontsize
+    kw.update(style_kwargs(style, _BAR_STYLE, "bar_style"))
     if panel.get("colors") is not None:
         if ticks is not None or tick_labels is not None:
             msg = (
@@ -262,7 +409,6 @@ def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=
             None,
             colors=panel["colors"],
             labels=panel.get("bin_labels"),
-            fontsize=fontsize,
             **kw,
         )
     if tick_labels is not None and ticks is None:
@@ -274,7 +420,6 @@ def _bar_content(panel, bar_label, fontsize, band=None, ticks=None, tick_labels=
         mappable=_panel_mappable(panel),
         use_colorbar=True,
         cbar_label=bar_label,
-        fontsize=fontsize,
         ticks=ticks,
         labels=tick_labels,
         **kw,
@@ -290,11 +435,23 @@ def map_facet(
     title=None,
     title_h=0.6,
     title_fontsize=22,
+    figure_title_style=None,
+    title_style=None,
     panel_title_h=0.4,
     cbar_h=0.85,
     bottom_pad_h=0.15,
     side_margins=(0.02, 0.98),
     cbar_fontsize=11,
+    bar_style=None,
+    ocean_style=None,
+    backdrop_style=None,
+    coastline_style=None,
+    border_style=None,
+    admin1_style=None,
+    boundary_style=None,
+    poly_style=None,
+    disputed_style=None,
+    letter_style=None,
     preview=False,
 ):
     """Multi-panel map figure: rows of fixed-aspect map panels + group colorbar rows.
@@ -304,14 +461,34 @@ def map_facet(
         {"panels": [{"gdf": ..., "value_col": ...,        # or "raster": ...
                      "cmap": ..., "norm": ...,             # or "vmin"/"vmax"
                      "colors": ..., "bin_labels": ...,     # optional: discrete legend
-                     "title": ..., "name": ...}, ...],
+                     "title": ..., "name": ...,
+                     "lakes"/"coastlines"/"borders": bool, # NE features (skipped in preview)
+                     "masked_color": ..., "disputed_gdf": ..., "admin1_gdf": ...,
+                     "panel_letter": ...,
+                     "<concern>_style": {...}}, ...],       # any cascading style dict (below)
          "extent": (x0, x1, y0, y1),                       # per row
          "cbar": "shared" | "each" | None,
          "cbar_label": str | list[str],
          "cbar_h": inches,                                  # optional per-row cell height
          "cbar_band": (bin_bottom, bin_top),                # optional ramp thickness in the cell
          "cbar_ticks": [values] | [[values], ...],          # optional: pin continuous-bar ticks
-         "cbar_tick_labels": [str] | [[str], ...]}          # optional: relabel exactly those ticks
+         "cbar_tick_labels": [str] | [[str], ...],          # optional: relabel exactly those ticks
+         "bar_style": {...}, "<concern>_style": {...}}      # row-level style overrides
+
+    STYLE CASCADE (house ruling, DECISIONS 2026-08-04): every drawn style is
+    reachable through a concern-specific dict settable at figure level (kwargs
+    below), row level, and panel level; merging is KEY-LEVEL, panel wins, and
+    unset keys fall through to the painter defaults. Map-cell concerns:
+    ``ocean_style`` {color, alpha}, ``backdrop_style`` {color, alpha,
+    edgecolor, linewidth}, ``coastline_style``/``border_style``/
+    ``admin1_style``/``disputed_style`` {color, linewidth, linestyle, alpha},
+    ``boundary_style`` {color, linewidth}, ``poly_style`` {edgecolor,
+    linewidth}, ``letter_style`` (text kwargs + x/y). ``title_style`` styles
+    PANEL titles (any ``set_title`` kwarg: fontsize, fontweight, pad, ...);
+    ``figure_title_style`` styles the figure title band (text kwargs, wins
+    over ``title_fontsize``); ``bar_style`` carries any ``bin_legend_panel``
+    knob (edge_lw, spacing, label_gap, fontsize, bin_bottom/bin_top, ...) and
+    cascades figure -> row -> panel ("each" mode). Unknown style keys raise.
 
     Everything is derived (``lib.layouts.geometry``): panel widths charge
     ``wspace`` against the mean panel, row heights follow the extent aspect in
@@ -335,11 +512,23 @@ def map_facet(
     """
     proj = projection or ccrs.PlateCarree()
     margins_lr = {"left": side_margins[0], "right": side_margins[1]}
+    fig_styles = {
+        "ocean_style": ocean_style,
+        "backdrop_style": backdrop_style,
+        "coastline_style": coastline_style,
+        "border_style": border_style,
+        "admin1_style": admin1_style,
+        "boundary_style": boundary_style,
+        "poly_style": poly_style,
+        "disputed_style": disputed_style,
+        "letter_style": letter_style,
+    }
 
     outer_cells, heights, map_names = [], [], []
     out_i = 0
     if title:
-        outer_cells.append(cell((0, 0), label(title, fontsize=title_fontsize), name="title"))
+        band_kw = {"fontsize": title_fontsize, **(figure_title_style or {})}
+        outer_cells.append(cell((0, 0), label(title, **band_kw), name="title"))
         heights.append(title_h)
         out_i = 1
     for i, row in enumerate(rows):
@@ -366,13 +555,25 @@ def map_facet(
                         cmap=p.get("cmap"),
                         norm=p.get("norm"),
                         base_admin_gdf=p.get("base_admin_gdf"),
+                        admin1_gdf=p.get("admin1_gdf"),
                         boundary_gdf=p.get("boundary_gdf"),
+                        disputed_gdf=p.get("disputed_gdf"),
                         missing_color=p.get("missing_color"),
+                        masked_color=p.get("masked_color"),
+                        panel_letter=p.get("panel_letter"),
                         ocean=not preview and p.get("ocean", False),
+                        lakes=not preview and p.get("lakes", False),
+                        coastlines=not preview and p.get("coastlines", False),
+                        borders=not preview and p.get("borders", False),
                         draw_data=not preview,
+                        **_cascade_styles(fig_styles, row, p),
                     ),
                     projection=proj,
                     title=p.get("title"),
+                    title_kwargs=merge_styles(
+                        title_style, row.get("title_style"), p.get("title_style")
+                    )
+                    or None,
                     name=p.get("name") or f"map:r{i}c{j}",
                 )
                 for j, p in enumerate(panels)
@@ -388,58 +589,9 @@ def map_facet(
         )
         out_i += 1
 
-        mode = row.get("cbar")
-        if mode is None:
+        if row.get("cbar") is None:
             continue
-        labels = row.get("cbar_label")
-        band = row.get("cbar_band")  # (bin_bottom, bin_top) of the ramp within its cell
-        ticks = row.get("cbar_ticks")  # declared tick positions for continuous bars
-        tick_labels = row.get("cbar_tick_labels")
-        if mode == "shared":
-            if _is_per_panel(ticks) or _is_per_panel(tick_labels):
-                msg = 'per-panel cbar_ticks/cbar_tick_labels need cbar mode "each" (one bar per panel)'
-                raise ValueError(msg)
-            outer_cells.append(
-                cell(
-                    (out_i, 0),
-                    _bar_content(
-                        panels[0],
-                        labels,
-                        cbar_fontsize,
-                        band=band,
-                        ticks=ticks,
-                        tick_labels=tick_labels,
-                    ),
-                    name=f"cbar:r{i}",
-                )
-            )
-        elif mode == "each":
-            per = labels if isinstance(labels, (list, tuple)) else [labels] * k
-            per_ticks = _per_panel_bar_arg(ticks, k, "cbar_ticks")
-            per_tick_labels = _per_panel_bar_arg(tick_labels, k, "cbar_tick_labels")
-            bar_row = grid(
-                (1, k),
-                [
-                    cell(
-                        (0, j),
-                        _bar_content(
-                            p,
-                            per[j],
-                            cbar_fontsize,
-                            band=band,
-                            ticks=per_ticks[j],
-                            tick_labels=per_tick_labels[j],
-                        ),
-                        name=f"cbar:r{i}c{j}",
-                    )
-                    for j, p in enumerate(panels)
-                ],
-                wspace=wspace,
-            )
-            outer_cells.append(cell((out_i, 0), bar_row))
-        else:
-            msg = f"unknown cbar mode {mode!r}: use 'shared', 'each', or None"
-            raise ValueError(msg)
+        outer_cells.append(_bar_cell(row, panels, out_i, i, wspace, cbar_fontsize, bar_style))
         heights.append(row.get("cbar_h", cbar_h))
         out_i += 1
 

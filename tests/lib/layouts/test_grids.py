@@ -162,3 +162,27 @@ def test_facet_grid_projection_refuses_axis_sharing():
     sub = pdat[(pdat["measure"] == "mort") & (pdat["metric"] == "rate")]
     with pytest.raises(ValueError, match="sharex/sharey"):
         facet_grid(sub, lambda ax, df: None, col="group", projection="polar", sharex=True)
+
+
+def test_cell_title_kwargs_style_the_title():
+    import matplotlib.pyplot as plt
+
+    from idd_figures.lib.layouts.grids import cell, grid, label, panel_grid
+
+    spec = grid(
+        (1, 1),
+        [
+            cell(
+                (0, 0),
+                label("x"),
+                name="p",
+                title="styled",
+                title_kwargs={"fontsize": 19, "pad": 11},
+            )
+        ],
+    )
+    fig = panel_grid(spec, figsize=(4, 3))
+    ax = fig.axes_by_name["p"]
+    assert ax.get_title() == "styled"
+    assert ax.title.get_fontsize() == 19
+    plt.close(fig)

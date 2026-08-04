@@ -22,6 +22,8 @@ import cartopy.feature as cfeature
 import numpy as np
 from shapely.geometry import box
 
+from idd_figures.lib.styles import style_kwargs
+
 __all__ = [
     "basemap_painter",
     "choropleth_painter",
@@ -31,6 +33,16 @@ __all__ = [
 ]
 
 _PC = ccrs.PlateCarree()
+
+# concern-dict vocabularies (lib.styles): keys the caller writes -> painter kwargs
+_LINE = {"color": "color", "linewidth": "linewidth", "linestyle": "linestyle", "alpha": "alpha"}
+_FEATURE_LINE = {  # cartopy features take edgecolor, not color
+    "color": "edgecolor",
+    "linewidth": "linewidth",
+    "linestyle": "linestyle",
+    "alpha": "alpha",
+}
+_FILL = {"color": "color", "alpha": "alpha", "edgecolor": "edgecolor", "linewidth": "linewidth"}
 
 
 def basemap_painter(
@@ -46,6 +58,10 @@ def basemap_painter(
     base_admin_gdf=None,
     admin1_gdf=None,
     admin_backdrop_color="lightgrey",
+    coastline_style=None,
+    border_style=None,
+    admin1_style=None,
+    backdrop_style=None,
 ):
     """Set the map extent + optional ocean / coastlines / borders / grey admin backdrop.
 
@@ -53,7 +69,9 @@ def basemap_painter(
     a light-grey filled backdrop (the "no-data" base), ``admin1_gdf`` as thin outlines.
     ``ocean``/``lakes``/``coastlines``/``borders`` use Natural Earth data (network on first
     use), so they can be toggled off for offline/preview rendering. ``lakes`` is drawn above
-    the data so inland water bodies read as water rather than filled land.
+    the data so inland water bodies read as water rather than filled land. The ``*_style``
+    dicts (``lib.styles`` vocabulary: color/linewidth/linestyle/alpha, plus edgecolor for
+    the backdrop fill) override the drawn defaults per concern, key by key.
     """
     ax.set_extent(extent, crs=_PC)
     if ocean:
@@ -62,20 +80,21 @@ def basemap_painter(
         # drawn ABOVE the data (zorder 5 > data 2) so inland water reads as water, not filled land
         ax.add_feature(cfeature.LAKES, facecolor=ocean_color, alpha=ocean_alpha, zorder=5)
     if coastlines:
-        ax.coastlines(linewidth=0.5)
-    if borders:
-        ax.add_feature(cfeature.BORDERS, linewidth=0.3, edgecolor="gray")
-    if base_admin_gdf is not None:
-        base_admin_gdf.plot(
-            ax=ax,
-            color=admin_backdrop_color,
-            edgecolor="black",
-            linewidth=0,
-            transform=_PC,
-            zorder=1,
+        ax.coastlines(
+            **{"linewidth": 0.5, **style_kwargs(coastline_style, _LINE, "coastline_style")}
         )
+    if borders:
+        kw = {"linewidth": 0.3, "edgecolor": "gray"}
+        kw.update(style_kwargs(border_style, _FEATURE_LINE, "border_style"))
+        ax.add_feature(cfeature.BORDERS, **kw)
+    if base_admin_gdf is not None:
+        kw = {"color": admin_backdrop_color, "edgecolor": "black", "linewidth": 0}
+        kw.update(style_kwargs(backdrop_style, _FILL, "backdrop_style"))
+        base_admin_gdf.plot(ax=ax, transform=_PC, zorder=1, **kw)
     if admin1_gdf is not None:
-        admin1_gdf.boundary.plot(ax=ax, color="darkgrey", linewidth=0.25, transform=_PC, zorder=1)
+        kw = {"color": "darkgrey", "linewidth": 0.25}
+        kw.update(style_kwargs(admin1_style, _LINE, "admin1_style"))
+        admin1_gdf.boundary.plot(ax=ax, transform=_PC, zorder=1, **kw)
     return ax
 
 
@@ -165,7 +184,15 @@ def raster_painter(
 
 
 def disputed_boundary_painter(
-    ax, disputed_gdf, *, extent, color="darkgrey", linewidth=0.25, linestyle="--", zorder=3
+    ax,
+    disputed_gdf,
+    *,
+    extent,
+    color="darkgrey",
+    linewidth=0.25,
+    linestyle="--",
+    alpha=1.0,
+    zorder=3,
 ):
     """Overlay disputed boundaries as dashed lines, CLIPPED to ``extent`` first; return ``ax``.
 
@@ -179,6 +206,7 @@ def disputed_boundary_painter(
             color=color,
             linewidth=linewidth,
             linestyle=linestyle,
+            alpha=alpha,
             transform=_PC,
             zorder=zorder,
         )
@@ -197,6 +225,7 @@ def map_cell_painter(
     cmap=None,
     norm=None,
     base_admin_gdf=None,
+    admin1_gdf=None,
     boundary_gdf=None,
     disputed_gdf=None,
     ocean=True,
@@ -204,10 +233,20 @@ def map_cell_painter(
     coastlines=False,
     borders=False,
     masked_color=None,
+    masked_alpha=1.0,
     missing_color=None,
     draw_data=True,
     panel_letter=None,
     panel_letter_fontsize=24,
+    ocean_style=None,
+    backdrop_style=None,
+    coastline_style=None,
+    border_style=None,
+    admin1_style=None,
+    boundary_style=None,
+    poly_style=None,
+    disputed_style=None,
+    letter_style=None,
 ):
     """ONE complete map cell: basemap + (choropleth | raster) + disputed lines + letter.
 
@@ -215,6 +254,15 @@ def map_cell_painter(
     layout-created GeoAxes (``_data`` exists so ``paint(map_cell_painter, None,
     ...)`` works directly). ``draw_data=False`` skips the expensive data draw
     for layout iteration. Never touches aspect or the Figure.
+
+    Every drawn style is reachable through its concern dict (``lib.styles``
+    vocabulary, unknown keys raise): ``ocean_style`` {color, alpha} (also fills
+    lakes), ``backdrop_style`` {color, alpha, edgecolor, linewidth},
+    ``coastline_style``/``admin1_style`` {color, linewidth, linestyle, alpha},
+    ``border_style``/``disputed_style`` likewise, ``boundary_style`` {color,
+    linewidth} (the ``boundary_gdf`` overlay), ``poly_style`` {edgecolor,
+    linewidth} (choropleth polygon edges), ``letter_style`` (matplotlib text
+    kwargs, plus x/y in axes fraction). Unset keys keep the painter defaults.
     """
     basemap_painter(
         ax,
@@ -224,6 +272,17 @@ def map_cell_painter(
         coastlines=coastlines,
         borders=borders,
         base_admin_gdf=base_admin_gdf,
+        admin1_gdf=admin1_gdf,
+        coastline_style=coastline_style,
+        border_style=border_style,
+        admin1_style=admin1_style,
+        backdrop_style=backdrop_style,
+        **style_kwargs(
+            ocean_style, {"color": "ocean_color", "alpha": "ocean_alpha"}, "ocean_style"
+        ),
+    )
+    boundary_kw = style_kwargs(
+        boundary_style, {"color": "boundary_color", "linewidth": "boundary_lw"}, "boundary_style"
     )
     if draw_data:
         if gdf is not None:
@@ -235,6 +294,10 @@ def map_cell_painter(
                 norm=norm,
                 boundary_gdf=boundary_gdf,
                 missing_color=missing_color,
+                **boundary_kw,
+                **style_kwargs(
+                    poly_style, {"edgecolor": "edgecolor", "linewidth": "linewidth"}, "poly_style"
+                ),
             )
         elif raster is not None:
             raster_painter(
@@ -244,19 +307,20 @@ def map_cell_painter(
                 cmap=cmap,
                 norm=norm,
                 masked_color=masked_color,
+                masked_alpha=masked_alpha,
                 boundary_gdf=boundary_gdf,
+                **boundary_kw,
             )
         if disputed_gdf is not None:
-            disputed_boundary_painter(ax, disputed_gdf, extent=extent)
+            disputed_boundary_painter(
+                ax,
+                disputed_gdf,
+                extent=extent,
+                **style_kwargs(disputed_style, _LINE, "disputed_style"),
+            )
     if panel_letter:
-        ax.text(
-            0.02,
-            0.98,
-            panel_letter,
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=panel_letter_fontsize,
-            fontweight="bold",
-        )
+        kw = {"va": "top", "ha": "left", "fontsize": panel_letter_fontsize, "fontweight": "bold"}
+        kw.update(letter_style or {})  # matplotlib text kwargs, passed verbatim
+        x, y = kw.pop("x", 0.02), kw.pop("y", 0.98)
+        ax.text(x, y, panel_letter, transform=ax.transAxes, **kw)
     return ax

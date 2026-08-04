@@ -421,6 +421,92 @@ def test_map_facet_cbar_tick_labels_require_ticks():
         )
 
 
+def test_map_facet_style_cascade_figure_row_panel():
+    # boundary linewidth: figure default 0.8; panel 1 overrides to 0.2; title fontsize
+    # cascades figure -> panel the same way. Key-level merge: panel wins only the keys it sets.
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+    p = {"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm, "boundary_gdf": gdf}
+    fig = map_facet(
+        [
+            {
+                "panels": [
+                    dict(p, title="hero", title_style={"fontsize": 18}),
+                    dict(p, title="small", boundary_style={"linewidth": 0.2}),
+                ],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": None,
+            }
+        ],
+        fig_width=10,
+        boundary_style={"linewidth": 0.8, "color": "red"},
+        title_style={"fontsize": 9},
+    )
+    lw0 = fig.axes_by_name["map:r0c0"].collections[-1].get_linewidths()[0]
+    lw1 = fig.axes_by_name["map:r0c1"].collections[-1].get_linewidths()[0]
+    assert lw0 == 0.8  # figure-level default
+    assert lw1 == 0.2  # panel override wins that key (color stays red from the figure level)
+    assert fig.axes_by_name["map:r0c0"].title.get_fontsize() == 18  # panel override
+    assert fig.axes_by_name["map:r0c1"].title.get_fontsize() == 9  # figure-level default
+    plt.close(fig)
+
+
+def test_map_facet_bar_style_and_figure_title_style():
+    from matplotlib.colors import Normalize
+
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    fig = map_facet(
+        [
+            {
+                "panels": [
+                    {"gdf": gdf, "value_col": "value", "cmap": "viridis", "norm": Normalize(0, 100)}
+                ],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "shared",
+                "bar_style": {"fontsize": 7},  # row override beats figure cbar_fontsize
+            }
+        ],
+        fig_width=10,
+        title="Styled band",
+        figure_title_style={"fontsize": 30, "fontweight": "bold"},
+        cbar_fontsize=11,
+        preview=True,
+    )
+    band_text = fig.axes_by_name["title"].texts[0]
+    assert band_text.get_fontsize() == 30
+    assert band_text.get_fontweight() == "bold"
+    cax = fig.axes_by_name["cbar:r0"].child_axes[0]
+    sizes = {t.get_fontsize() for t in cax.get_xticklabels() if t.get_text()}
+    assert sizes == {7.0}
+    plt.close(fig)
+
+
+def test_map_facet_unknown_style_key_raises():
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    cmap, norm, _ = binned_colormap([0, 50, 100])
+    with pytest.raises(ValueError, match="boundary_style: unknown style keys"):
+        map_facet(
+            [
+                {
+                    "panels": [{"gdf": gdf, "value_col": "value", "cmap": cmap, "norm": norm}],
+                    "extent": SYNTHETIC_EXTENT,
+                    "cbar": None,
+                }
+            ],
+            fig_width=10,
+            boundary_style={"lw": 0.8},
+        )
+
+
 def test_map_facet_unknown_cbar_mode_raises():
     from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
     from idd_figures.lib.layouts.maps import map_facet
