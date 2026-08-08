@@ -9,17 +9,21 @@ plotting primitives (bins, colors, palettes, numbers, style, frames, io).
 
 ## Installation
 
-### Cluster / development (conda interpreter + uv)
+### Cluster / development (uv-managed .venv)
 
-conda provides only the Python interpreter; uv installs and manages every Python
-dependency from `pyproject.toml` / `uv.lock`:
+uv owns everything: the project `.venv`, its interpreter (a uv-managed CPython —
+conda is not involved), and every dependency from `pyproject.toml` / `uv.lock`:
 
 ```bash
-conda env create -f environment.yml    # interpreter-only env
-conda activate idd-figures
-python -m pip install uv               # per-env uv, same idiom as pip install poetry
-UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync --all-extras
+uv python install 3.12    # one-time per user (deliberate download; policy is python-downloads = "manual")
+uv venv --python 3.12     # .venv in the repo root
+uv sync --all-extras
+.venv/bin/python -m pytest tests/    # verify
 ```
+
+Run code via `.venv/bin/python` (absolute path in Slurm jobs — no activation
+needed). For notebooks: `.venv/bin/python -m ipykernel install --user --name
+idd-figures --display-name "idd-figures (.venv)"`.
 
 ### As a dependency (pip)
 

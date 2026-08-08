@@ -1,8 +1,0 @@
-# Interpreter-only: conda provides Python + pip; uv manages every Python
-# dependency inside the env from pyproject.toml/uv.lock (see README).
-name: idd-figures
-channels:
-  - conda-forge
-dependencies:
-  - python=3.12
-  - pip
