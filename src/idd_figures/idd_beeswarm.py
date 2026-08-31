@@ -1,17 +1,23 @@
 """Auto-sizing beeswarm: greedy min-shift layout, dot size optimized to margin.
 
-Points are processed in (y, x) order; each takes the smallest horizontal shift
-that keeps every pair of dot centers at least one diameter (plus
-``gap_fraction`` of a diameter) apart, measured in pixels; ``find_optimal_s``
-binary-searches the largest dot size whose max |shift| + radius stays within
-``margin`` x-units of the category center.
+Points are processed in value order; each takes the smallest offset (along the
+category axis) that keeps every pair of dot centers at least one diameter
+(plus ``gap_fraction`` of a diameter) apart, measured in pixels;
+``find_optimal_s`` binary-searches the largest dot size whose
+max |offset| + radius stays within ``margin`` category-axis units.
+
+Orientation and sidedness (2026-08-28): ``orient="v"`` (default) draws
+categories on x and values on y with horizontal offsets — the original
+behavior, bit-identical layouts; ``orient="h"`` draws values on x and
+categories on y with vertical offsets. ``one_sided=True`` restricts offsets to
+the positive side of the category line (right for "v", up for "h").
 
 Vectorized rewrite (2026-08-28): identical algorithm, API, and defaults to the
 original implementation, ~1000x faster per layout (one transData.transform for
-all points, numpy collision math over the y-window of possibly-colliding
+all points, numpy collision math over the window of possibly-colliding
 neighbours, per-colour scatter). Layouts are bit-identical to the original
 except at exact mirror ties (a point tangent left or right of its anchor with
-equal |shift|), where this version deterministically picks the right side;
+equal |shift|), where this version deterministically picks the positive side;
 either choice is a valid, overlap-free swarm.
 """
 
@@ -22,71 +28,90 @@ import pandas as pd
 TOL_PX = 1e-6  # the original's collision tolerance, in pixels
 
 
-def _layout_px(x_px, y_px, order, D):
+def _layout_px(off_px, val_px, order, D, one_sided=False):
     """Greedy min-shift swarm in pixel space.
 
-    Returns the new x pixel positions, or None if some point has no valid
-    position (s too large). ``order`` is the processing order; the first
-    point stays put, every later one takes the smallest |shift| that keeps
-    all center distances >= D (within TOL_PX).
+    ``off_px`` is the offset axis (dots slide along it), ``val_px`` the value
+    axis (fixed). Returns new offset-axis positions, or None if some point has
+    no valid position (s too large). ``order`` is the processing order; the
+    first point stays put, every later one takes the smallest |shift| —
+    smallest non-negative shift when ``one_sided`` — that keeps all center
+    distances >= D (within TOL_PX).
     """
-    n = x_px.size
-    out = x_px.copy()
-    PX = np.empty(n)
-    PY = np.empty(n)
+    n = off_px.size
+    out = off_px.copy()
+    PA = np.empty(n)
+    PB = np.empty(n)
     k = 0
     thresh2 = (D - TOL_PX) ** 2
     for i in order:
-        xi, yi = x_px[i], y_px[i]
+        ai, bi = off_px[i], val_px[i]
         if k:
-            dy = PY[:k] - yi
-            near = np.abs(dy) < D
+            dv = PB[:k] - bi
+            near = np.abs(dv) < D
             if near.any():
-                nx, ndy = PX[:k][near], dy[near]
-                if ((nx - xi) ** 2 + ndy * ndy < thresh2).any():
-                    dx = np.sqrt(D * D - ndy * ndy)
-                    cands = np.concatenate([nx + dx, nx - dx])
-                    d2 = (cands[:, None] - nx[None, :]) ** 2 + (ndy * ndy)[None, :]
+                na, ndv = PA[:k][near], dv[near]
+                if ((na - ai) ** 2 + ndv * ndv < thresh2).any():
+                    da = np.sqrt(D * D - ndv * ndv)
+                    cands = np.concatenate([na + da, na - da])
+                    d2 = (cands[:, None] - na[None, :]) ** 2 + (ndv * ndv)[None, :]
                     ok = (d2 >= thresh2).all(axis=1)
-                    if not ok.any():
-                        return None
                     valid = cands[ok]
-                    xi = valid[np.argmin(np.abs(valid - xi))]
-        PX[k], PY[k] = xi, yi
+                    if one_sided:
+                        valid = valid[valid >= off_px[i] - TOL_PX]
+                    if valid.size == 0:
+                        return None
+                    ai = valid[np.argmin(np.abs(valid - ai))]
+        PA[k], PB[k] = ai, bi
         k += 1
-        out[i] = xi
+        out[i] = ai
     return out
 
 
-def position_all_points(x, y, s, gap_fraction, fig, ax, verbose_inner=False):
-    """Same contract as the original: (result df, max |shift| + radius)."""
+def position_all_points(
+    x, y, s, gap_fraction, fig, ax, verbose_inner=False, orient="v", one_sided=False
+):
+    """Lay out one dot size: returns (result df, max |offset| + radius).
+
+    ``x`` is the category coordinate, ``y`` the value, whatever the orient;
+    the returned ``xnew``/``ynew`` are PLOT coordinates (for "h" the value
+    lands on the plot x-axis and the offset category coordinate on plot y).
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
-    pts = ax.transData.transform(np.column_stack([x, y]))
-    x_px, y_px = pts[:, 0], pts[:, 1]
-    # pixels per x-data-unit (linear axes), for converting results back
-    scale = ax.transData.transform([(1.0, 0.0)])[0][0] - ax.transData.transform([(0.0, 0.0)])[0][0]
+    if orient == "v":
+        pts = ax.transData.transform(np.column_stack([x, y]))
+        off_px, val_px = pts[:, 0], pts[:, 1]
+        unit = ax.transData.transform([(1.0, 0.0)])[0][0] - ax.transData.transform([(0.0, 0.0)])[0][0]
+    elif orient == "h":
+        pts = ax.transData.transform(np.column_stack([y, x]))  # plot coords: (value, cat)
+        off_px, val_px = pts[:, 1], pts[:, 0]
+        unit = ax.transData.transform([(0.0, 1.0)])[0][1] - ax.transData.transform([(0.0, 0.0)])[0][1]
+    else:
+        msg = f"orient must be 'v' or 'h', got {orient!r}"
+        raise ValueError(msg)
 
     r_px = np.sqrt(s) / 2.0 * fig.dpi / 72.0
     D = 2.0 * r_px * (1.0 + gap_fraction)
 
-    order = np.lexsort((x, y))          # the original's (yorig, xorig) order
-    new_px = _layout_px(x_px, y_px, order, D)
+    order = np.lexsort((x, y))          # by value, category as tiebreak
+    new_px = _layout_px(off_px, val_px, order, D, one_sided=one_sided)
     if new_px is None:
         return None, None
 
-    shift = (new_px - x_px) / scale
+    shift = (new_px - off_px) / unit
+    cat_new = x + shift
     result = pd.DataFrame(
         {
             "original_index": np.arange(x.size),
             "xorig": x,
             "yorig": y,
-            "xnew": x + shift,
-            "ynew": y,
+            "xnew": cat_new if orient == "v" else y,
+            "ynew": y if orient == "v" else cat_new,
             "shift": shift,
         }
     )
-    return result, float(np.abs(shift).max() + r_px / scale)
+    return result, float(np.abs(shift).max() + r_px / abs(unit))
 
 
 def find_optimal_s(
@@ -105,8 +130,10 @@ def find_optimal_s(
     verbose_inner=False,
     s_min=100,
     s_max=10000,
+    orient="v",
+    one_sided=False,
 ):
-    """Same bisection and stopping rules as the original, on the fast layout."""
+    """Binary-search the largest s whose max |offset| + radius fits in margin."""
     best_s = None
     history = []
     seq_errors: list[float] = []
@@ -116,7 +143,9 @@ def find_optimal_s(
     while True:
         iteration += 1
         s_test = (s_min + s_max) / 2.0
-        result, extent = position_all_points(x, y, s_test, gap_fraction, fig, ax)
+        result, extent = position_all_points(
+            x, y, s_test, gap_fraction, fig, ax, orient=orient, one_sided=one_sided
+        )
         if result is None:
             valid = False
             s_max = s_test
@@ -153,7 +182,9 @@ def find_optimal_s(
         print(f"\n⚠️  WARNING: Could not find valid s within range. "
               f"Using minimum s = {s_min:.1f}")
         best_s = s_min
-    final_result, max_extent = position_all_points(x, y, best_s, gap_fraction, fig, ax)
+    final_result, max_extent = position_all_points(
+        x, y, best_s, gap_fraction, fig, ax, orient=orient, one_sided=one_sided
+    )
     find_optimal_s.history = history
     return best_s, final_result, max_extent, history
 
@@ -183,8 +214,18 @@ def idd_beeswarm(
     verbose_inner=False,
     s_min=100,
     s_max=10000,
+    orient="v",
+    one_sided=False,
 ):
-    """API-identical to idd_figures.idd_beeswarm.idd_beeswarm."""
+    """Auto-sized beeswarm of ``y_var`` per ``x_var`` category.
+
+    ``orient="v"``: categories on plot-x, values on plot-y (the original).
+    ``orient="h"``: values on plot-x, categories on plot-y.
+    ``one_sided=True``: offsets only on the positive side of the category
+    line (right for "v", up for "h"); the unused side keeps a small pad.
+    ``ylim``/``ylim_stretch`` always describe the VALUE axis, ``margin``/
+    ``x_edge_pad`` the category axis, whatever the orientation.
+    """
     if ax is None:
         fig, ax = plt.subplots(figsize=fig_size)
     elif fig is None:
@@ -196,34 +237,48 @@ def idd_beeswarm(
     x_mapping = {val: idx for idx, val in enumerate(x_var_order)}
     x = data[x_var].map(x_mapping).values
 
-    if ylim is not None:
-        ax.set_ylim(ylim)
-    else:
+    if ylim is None:
         y_diff = max(y) - min(y)
-        ax.set_ylim(min(y) - ylim_stretch * y_diff, max(y) + ylim_stretch * y_diff)
-    ax.set_xlim(min(x) - margin - x_edge_pad, max(x) + margin + x_edge_pad)
+        ylim = (min(y) - ylim_stretch * y_diff, max(y) + ylim_stretch * y_diff)
+    lo_pad = 0.15 if one_sided else margin + x_edge_pad   # unused side stays slim
+    cat_lim = (min(x) - lo_pad, max(x) + margin + x_edge_pad)
+    if orient == "v":
+        ax.set_ylim(ylim)
+        ax.set_xlim(cat_lim)
+    else:
+        ax.set_xlim(ylim)
+        ax.set_ylim(cat_lim)
 
     optimal_s, final_positions, max_extent, history = find_optimal_s(
         x, y, gap_fraction, margin, fig, ax,
         tol=tol, N_seq=N_seq, tol_seq=tol_seq, max_iterations=max_iterations,
         verbose_optim_min=verbose_optim_min, verbose_optim_full=verbose_optim_full,
         verbose_inner=verbose_inner, s_min=s_min, s_max=s_max,
+        orient=orient, one_sided=one_sided,
     )
 
     final_data = data.join(final_positions[["xnew", "ynew"]])
 
     if draw_margin:
+        line = ax.axvline if orient == "v" else ax.axhline
         for x_pos in sorted(set(x)):
-            ax.axvline(x=x_pos - margin, color="gray", linestyle=":", linewidth=2)
-            ax.axvline(x=x_pos + margin, color="gray", linestyle=":", linewidth=2)
-            ax.axvline(x=x_pos, color="gray", linestyle="-", linewidth=0.5, alpha=0.3)
+            if not one_sided:
+                line(x_pos - margin, color="gray", linestyle=":", linewidth=2)
+            line(x_pos + margin, color="gray", linestyle=":", linewidth=2)
+            line(x_pos, color="gray", linestyle="-", linewidth=0.5, alpha=0.3)
 
     for level, sub in final_data.groupby(color_var, sort=False):
         ax.scatter(sub["xnew"], sub["ynew"], s=optimal_s, marker="o",
                    facecolors=color_dict[level], edgecolors=None, linewidths=2)
 
-    ax.set_xticks(list(x_mapping.values()))
-    ax.set_xticklabels(list(x_mapping.keys()))
-    ax.set_xlabel("")
+    ticks, labels = list(x_mapping.values()), list(x_mapping.keys())
+    if orient == "v":
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(labels)
+        ax.set_xlabel("")
+    else:
+        ax.set_yticks(ticks)
+        ax.set_yticklabels(labels)
+        ax.set_ylabel("")
 
     plt.show()
