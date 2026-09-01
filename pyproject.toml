@@ -11,6 +11,7 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
     "matplotlib>=3.8",
+    "pyarrow>=25.0.1",
 ]
 # jobmon_installer_ihme is intentionally omitted (figures library, never runs
 # Slurm; internal-only dep would break public CI). See .claude/DECISIONS.md.
@@ -36,6 +37,7 @@ dev = [
     "mypy",
     "pre-commit",
     "ipykernel>=7",  # >=7 so the conda env is selectable as a Jupyter kernel
+    "nbclient>=0.11.0",
 ]
 
 [build-system]
