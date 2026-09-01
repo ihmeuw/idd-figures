@@ -40,6 +40,17 @@ def test_basemap_sets_extent_offline():
     plt.close(fig)
 
 
+def test_basemap_ocean_fill_paints_background_offline():
+    from matplotlib.colors import to_rgba
+
+    fig, ax = _geoax()
+    basemap_painter(ax, extent=[0, 6, 0, 4], ocean="fill", ocean_color="#A6B6DC", ocean_alpha=0.5)
+    assert ax.get_facecolor() == to_rgba("#A6B6DC", 0.5)
+    # facecolor mode must not add Natural Earth features (offline-safe)
+    assert not ax.artists
+    plt.close(fig)
+
+
 def test_basemap_grey_backdrop_draws():
     gdf = ed.make_admin_polygons()
     fig, ax = _geoax()

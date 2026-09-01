@@ -68,13 +68,19 @@ def basemap_painter(
     ``extent`` is ``[lon_min, lon_max, lat_min, lat_max]``. ``base_admin_gdf`` is drawn as
     a light-grey filled backdrop (the "no-data" base), ``admin1_gdf`` as thin outlines.
     ``ocean``/``lakes``/``coastlines``/``borders`` use Natural Earth data (network on first
-    use), so they can be toggled off for offline/preview rendering. ``lakes`` is drawn above
+    use), so they can be toggled off for offline/preview rendering. ``ocean="fill"`` paints
+    the axes background with ``ocean_color`` instead — no Natural Earth, offline-safe; land
+    covers it, so anything undrawn reads as water. ``lakes`` is drawn above
     the data so inland water bodies read as water rather than filled land. The ``*_style``
     dicts (``lib.styles`` vocabulary: color/linewidth/linestyle/alpha, plus edgecolor for
     the backdrop fill) override the drawn defaults per concern, key by key.
     """
+    from matplotlib.colors import to_rgba
+
     ax.set_extent(extent, crs=_PC)
-    if ocean:
+    if ocean == "fill":
+        ax.set_facecolor(to_rgba(ocean_color, ocean_alpha))
+    elif ocean:
         ax.add_feature(cfeature.OCEAN, facecolor=ocean_color, alpha=ocean_alpha, zorder=0)
     if lakes:
         # drawn ABOVE the data (zorder 5 > data 2) so inland water reads as water, not filled land
