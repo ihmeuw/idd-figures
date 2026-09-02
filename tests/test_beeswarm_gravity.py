@@ -63,7 +63,9 @@ class TestGravityParams:
 
 
 class TestGZeroIsPhi:
-    """Two anchors. Analytic-only gravity at g = 0 IS phi+drop, bit for bit
+    """Two anchors, both Python-internal (backend="python" on both sides: the
+    cross-language phi gate is 1e-7 because of the ellipse solve, see
+    test_beeswarm_c). Analytic-only gravity at g = 0 IS phi+drop, bit for bit
     (shared gate, fallback, candidates, filters, tie-break). Exhaustive gravity
     at g = 0 is never worse than phi at any step and identical wherever phi's
     analytic set contains the optimum; where the sampler finds a strictly
@@ -110,6 +112,7 @@ class TestGZeroIsPhi:
             process_order=order,
             one_sided=one_sided,
             gravity=Gravity(0.0, exhaustive=False),
+            backend="python",
         )
         assert np.array_equal(ref[0], got[0]) and np.array_equal(ref[1], got[1])
 
@@ -240,15 +243,15 @@ class TestGravityValidation:
         with pytest.raises(NotImplementedError, match="circles only"):
             layout(cat, val, 0.5, 0.6, phi=PHI, gravity=Gravity(1.0), shape=sq)
 
-    def test_c_backend_refuses_gravity(self, anchors):
+    def test_c_backend_matches_python(self, anchors):
         cat, val = anchors
-        pytest.importorskip("idd_figures.beeswarm_c")
         from idd_figures.beeswarm_core import has_fast_backend
 
         if not has_fast_backend():
             pytest.skip("kernel not built")
-        with pytest.raises(NotImplementedError, match="gravity"):
-            layout(cat, val, 0.5, 0.6, phi=PHI, gravity=Gravity(1.0), backend="c")
+        c = layout(cat, val, 0.5, 0.6, phi=PHI, gravity=Gravity(1.0), backend="c")
+        py = layout(cat, val, 0.5, 0.6, phi=PHI, gravity=Gravity(1.0), backend="python")
+        assert np.allclose(c[0], py[0], atol=1e-9) and np.allclose(c[1], py[1], atol=1e-9)
 
     def test_wrapper_threads_gravity(self):
         mpl = pytest.importorskip("matplotlib")

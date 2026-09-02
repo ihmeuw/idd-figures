@@ -446,8 +446,13 @@ def _gravity_best(ai, bi, PA, PB, phi, grav, one_sided=False, val_bounds=None):
     wa, wb = PA[nearW], PB[nearW]
     sqphi = np.sqrt(phi)
     ax_, ay_ = _phi_candidates(ai, bi, wa, wb, 1.0, sqphi, one_sided, val_bounds)
-    parts_x = [ax_, valid0]
-    parts_y = [ay_, np.full(valid0.size, bi)]
+    # pure-offset alternatives join the pool only when strictly cheaper than
+    # the fallback: at g = 0 none are (so the pool is exactly phi's, in both
+    # modes) and the fallback can never win a tie phi would have lost
+    v0_cost = _gravity_cost(valid0, np.full(valid0.size, bi), ai, bi, PA, PB, phi, grav)
+    better0 = v0_cost < c0_g - 1e-12
+    parts_x = [ax_, valid0[better0]]
+    parts_y = [ay_, np.full(int(better0.sum()), bi)]
     if grav.exhaustive:
         sx_parts, sy_parts = [], []
         # boundary samples on every near circle
@@ -910,8 +915,8 @@ def _resolve_backend(backend, c_capable):
             raise RuntimeError(msg)
         if not c_capable:
             msg = (
-                "backend='c' has no kernel for this configuration (grid methods, phi with "
-                "non-circle shapes, and gravity run in Python)"
+                "backend='c' has no kernel for this configuration (grid methods and phi with "
+                "non-circle shapes run in Python)"
             )
             raise NotImplementedError(msg)
         return kern
@@ -970,7 +975,7 @@ def layout(
     (``beeswarm_shapes``; default the unit disk); non-circle shapes support
     the swarm method without phi. ``gravity`` (a ``Gravity``) generalizes phi's
     value moves with a position-dependent price and a density basin; requires
-    phi, circles, and runs in Python. ``backend`` selects the optional C kernel:
+    phi and circles. ``backend`` selects the optional C kernel:
     "auto" (default) uses it when present for the configurations it covers,
     "c" insists and raises otherwise, "python" never uses it. Results are the
     same either way (parity-tested); only speed differs.
@@ -990,10 +995,7 @@ def layout(
             raise NotImplementedError(msg)
     is_spine_drop = isinstance(process_order, str) and process_order == "spine-drop"
     kern = _resolve_backend(
-        backend,
-        c_capable=(
-            method == "swarm" and (shape.kind == "circle" or phi is None) and gravity is None
-        ),
+        backend, c_capable=(method == "swarm" and (shape.kind == "circle" or phi is None))
     )
     a = cat / dx
     b = val / dy
@@ -1014,6 +1016,7 @@ def layout(
                 val_bounds=val_bounds,
                 bin_order=bin_order,
                 shape=shape,
+                gravity=gravity,
             )
             if pair is None:
                 return None
@@ -1046,15 +1049,20 @@ def layout(
                 if a_new is None:
                     return None
                 b_new = b
-            elif kern is not None:
-                pair = kern.layout_phi(a, b, order, phi, one_sided=one_sided, val_bounds=val_bounds)
+            elif gravity is not None:
+                if kern is not None:
+                    pair = kern.layout_gravity(
+                        a, b, order, phi, gravity, one_sided=one_sided, val_bounds=val_bounds
+                    )
+                else:
+                    pair = _layout_gravity(
+                        a, b, order, phi, gravity, one_sided=one_sided, val_bounds=val_bounds
+                    )
                 if pair is None:
                     return None
                 a_new, b_new = pair
-            elif gravity is not None:
-                pair = _layout_gravity(
-                    a, b, order, phi, gravity, one_sided=one_sided, val_bounds=val_bounds
-                )
+            elif kern is not None:
+                pair = kern.layout_phi(a, b, order, phi, one_sided=one_sided, val_bounds=val_bounds)
                 if pair is None:
                     return None
                 a_new, b_new = pair

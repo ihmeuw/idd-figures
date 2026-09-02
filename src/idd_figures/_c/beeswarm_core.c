@@ -12,6 +12,7 @@
 #include <string.h>
 
 #define TOL 1e-9
+#define BS_PI 3.14159265358979323846  /* M_PI is not C99 */
 
 static int pick(int n, const double *values, const double *p1, const double *p2) {
     double vmin = INFINITY;
@@ -208,7 +209,8 @@ static void ellipse_closest(double qx, double qy, double alpha, double beta, dou
 }
 
 typedef struct {
-    double *na, *ndv, *c0s, *ab, *wa, *wb;   /* size n each */
+    double *na, *ndv, *c0s, *ab, *wa, *wb;   /* size n each (c0s, ab: 2n) */
+    double *w;                               /* gravity weights, size n */
     double *cx, *cy, *cost;                 /* grown on demand */
     int cap;
 } phi_scratch;
@@ -221,45 +223,12 @@ static void phi_reserve(phi_scratch *sc, int need) {
     sc->cost = realloc(sc->cost, sc->cap * sizeof(double));
 }
 
-static int phi_best(double ai, double bi, int k, const double *PA, const double *PB, double phi,
-                    int one_sided, int has_bounds, double blo, double bhi,
-                    double *oa, double *ob, double *ocost, phi_scratch *sc) {
-    const double thresh2 = (1.0 - TOL) * (1.0 - TOL);
-    const double sqphi = sqrt(phi);
-    int m0 = 0, collide = 0;
-    for (int j = 0; j < k; j++) {
-        double dv = PB[j] - bi;
-        if (fabs(dv) < 1.0) {
-            sc->na[m0] = PA[j]; sc->ndv[m0] = dv; m0++;
-            if ((PA[j] - ai) * (PA[j] - ai) + dv * dv < thresh2) collide = 1;
-        }
-    }
-    if (m0 == 0 || !collide) { *oa = ai; *ob = bi; *ocost = 0.0; return 0; }
-    /* pure-offset fallback */
-    int nc = 0;
-    for (int pass = 0; pass < 2; pass++) {
-        for (int j = 0; j < m0; j++) {
-            double da = sqrt(1.0 - sc->ndv[j] * sc->ndv[j]);
-            double c = pass == 0 ? sc->na[j] + da : sc->na[j] - da;
-            int ok = 1;
-            for (int t = 0; t < m0; t++) {
-                double d = c - sc->na[t];
-                if (d * d + sc->ndv[t] * sc->ndv[t] < thresh2) { ok = 0; break; }
-            }
-            if (!ok) continue;
-            if (one_sided && c < ai - TOL) continue;
-            sc->c0s[nc] = c; sc->ab[nc] = fabs(c - ai); nc++;
-        }
-    }
-    if (nc == 0) return 1;
-    double best_a = sc->c0s[pick(nc, sc->ab, sc->c0s, NULL)], best_b = bi;
-    double c0 = (best_a - ai) * (best_a - ai);
-    double delta = sqrt(c0 / phi);
-    int mW = 0;
-    for (int j = 0; j < k; j++) {
-        double dv = PB[j] - bi;
-        if (fabs(dv) < 1.0 + delta) { sc->wa[mW] = PA[j]; sc->wb[mW] = PB[j]; mW++; }
-    }
+/* The analytic candidate positions for the phi step against the window
+ * marks (wa, wb) in sc: projections, circle-circle intersections, constraint
+ * line hits. Writes sc->cx/cy, returns the count. Shared with gravity; the
+ * arithmetic mirrors beeswarm_core._phi_candidates. */
+static int phi_candidates(double ai, double bi, int mW, double sqphi, int one_sided,
+                          int has_bounds, double blo, double bhi, phi_scratch *sc) {
     phi_reserve(sc, mW * (mW - 1) + 7 * mW + 2);
     int nk = 0;
     for (int j = 0; j < mW; j++) {  /* metric projection onto each circle */
@@ -305,6 +274,49 @@ static int phi_best(double ai, double bi, int k, const double *PA, const double 
             if (one_sided) { sc->cx[nk] = ai; sc->cy[nk] = vb; nk++; }
         }
     }
+    return nk;
+}
+
+static int phi_best(double ai, double bi, int k, const double *PA, const double *PB, double phi,
+                    int one_sided, int has_bounds, double blo, double bhi,
+                    double *oa, double *ob, double *ocost, phi_scratch *sc) {
+    const double thresh2 = (1.0 - TOL) * (1.0 - TOL);
+    const double sqphi = sqrt(phi);
+    int m0 = 0, collide = 0;
+    for (int j = 0; j < k; j++) {
+        double dv = PB[j] - bi;
+        if (fabs(dv) < 1.0) {
+            sc->na[m0] = PA[j]; sc->ndv[m0] = dv; m0++;
+            if ((PA[j] - ai) * (PA[j] - ai) + dv * dv < thresh2) collide = 1;
+        }
+    }
+    if (m0 == 0 || !collide) { *oa = ai; *ob = bi; *ocost = 0.0; return 0; }
+    /* pure-offset fallback */
+    int nc = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        for (int j = 0; j < m0; j++) {
+            double da = sqrt(1.0 - sc->ndv[j] * sc->ndv[j]);
+            double c = pass == 0 ? sc->na[j] + da : sc->na[j] - da;
+            int ok = 1;
+            for (int t = 0; t < m0; t++) {
+                double d = c - sc->na[t];
+                if (d * d + sc->ndv[t] * sc->ndv[t] < thresh2) { ok = 0; break; }
+            }
+            if (!ok) continue;
+            if (one_sided && c < ai - TOL) continue;
+            sc->c0s[nc] = c; sc->ab[nc] = fabs(c - ai); nc++;
+        }
+    }
+    if (nc == 0) return 1;
+    double best_a = sc->c0s[pick(nc, sc->ab, sc->c0s, NULL)], best_b = bi;
+    double c0 = (best_a - ai) * (best_a - ai);
+    double delta = sqrt(c0 / phi);
+    int mW = 0;
+    for (int j = 0; j < k; j++) {
+        double dv = PB[j] - bi;
+        if (fabs(dv) < 1.0 + delta) { sc->wa[mW] = PA[j]; sc->wb[mW] = PB[j]; mW++; }
+    }
+    int nk = phi_candidates(ai, bi, mW, sqphi, one_sided, has_bounds, blo, bhi, sc);
     /* filter: dominated, constraint, then validity (invalid -> inf cost) */
     int nkeep = 0;
     for (int c = 0; c < nk; c++) {
@@ -333,13 +345,14 @@ static phi_scratch phi_scratch_alloc(int64_t n) {
     sc.na = malloc(n * sizeof(double)); sc.ndv = malloc(n * sizeof(double));
     sc.c0s = malloc(2 * n * sizeof(double)); sc.ab = malloc(2 * n * sizeof(double));
     sc.wa = malloc(n * sizeof(double)); sc.wb = malloc(n * sizeof(double));
+    sc.w = malloc(n * sizeof(double));
     sc.cx = NULL; sc.cy = NULL; sc.cost = NULL; sc.cap = 0;
     return sc;
 }
 
 static void phi_scratch_free(phi_scratch *sc) {
     free(sc->na); free(sc->ndv); free(sc->c0s); free(sc->ab); free(sc->wa); free(sc->wb);
-    free(sc->cx); free(sc->cy); free(sc->cost);
+    free(sc->w); free(sc->cx); free(sc->cy); free(sc->cost);
 }
 
 int bs_layout_phi(int64_t n, const double *off, const double *val, const int64_t *order,
@@ -377,6 +390,188 @@ int bs_phi_best(double ai, double bi, int64_t k, const double *PA, const double 
 int bs_ellipse_closest(double qx, double qy, double alpha, double beta, double *out2) {
     ellipse_closest(qx, qy, alpha, beta, &out2[0], &out2[1]);
     return 0;
+}
+
+/* ---- gravity: phi's step with a position-dependent price and a density
+ * basin (mirrors beeswarm_core._gravity_*). Exhaustive search inside the
+ * closed-form window; exact feasibility; optimal up to the grid spacing. ---- */
+
+typedef struct { double g, kappa, beta, sigma, lam, h; int64_t M; int exhaustive; } gravity_params;
+
+static gravity_params gravity_from_array(const double *gp) {
+    gravity_params p = { gp[0], gp[1], gp[2], gp[3], gp[4], gp[5], (int64_t)gp[6], gp[7] > 0.5 };
+    return p;
+}
+
+/* w_j = exp(-|PA_j - ai| / lam) for the current mark; also returns W = sum w_j. */
+static double gravity_weights(double ai, int64_t k, const double *PA, const gravity_params *gp, double *w) {
+    double W = 0.0;
+    for (int64_t j = 0; j < k; j++) { w[j] = exp(-fabs(PA[j] - ai) / gp->lam); W += w[j]; }
+    return W;
+}
+
+static double gravity_cost1(double x, double y, double ai, double bi, int64_t k, const double *PA,
+                            const double *PB, const double *w, double phi, const gravity_params *gp) {
+    double doff = x - ai, dval = y - bi;
+    double d2o = doff * doff;
+    double cost = d2o * (1.0 + (gp->g * gp->kappa) * d2o) + phi * (dval * dval);
+    if (gp->g == 0.0 || gp->beta == 0.0 || k == 0) return cost;
+    double inv = 1.0 / (2.0 * gp->sigma * gp->sigma), rho = 0.0;
+    for (int64_t j = 0; j < k; j++) {
+        double dx = x - PA[j], dy = y - PB[j];
+        rho += w[j] * exp(-(dx * dx + dy * dy) * inv);
+    }
+    return cost - (gp->g * gp->beta) * rho;
+}
+
+/* 0 ok, 1 no valid position. Mirrors _gravity_best step for step. */
+static int gravity_best(double ai, double bi, int64_t k, const double *PA, const double *PB, double phi,
+                        const gravity_params *gp, int one_sided, int has_bounds, double blo, double bhi,
+                        double *oa, double *ob, double *ocost, phi_scratch *sc) {
+    const double thresh2 = (1.0 - TOL) * (1.0 - TOL);
+    /* gate: anchor stays when feasible */
+    int m0 = 0, collide = 0;
+    for (int64_t j = 0; j < k; j++) {
+        double dv = PB[j] - bi;
+        if (fabs(dv) < 1.0) {
+            sc->na[m0] = PA[j]; sc->ndv[m0] = dv; m0++;
+            if ((PA[j] - ai) * (PA[j] - ai) + dv * dv < thresh2) collide = 1;
+        }
+    }
+    if (m0 == 0 || !collide) { *oa = ai; *ob = bi; *ocost = 0.0; return 0; }
+    /* reference: pure-offset fallback (phi's rule) and the window */
+    int nv = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        for (int j = 0; j < m0; j++) {
+            double da = sqrt(1.0 - sc->ndv[j] * sc->ndv[j]);
+            double c = pass == 0 ? sc->na[j] + da : sc->na[j] - da;
+            int ok = 1;
+            for (int t = 0; t < m0; t++) {
+                double d = c - sc->na[t];
+                if (d * d + sc->ndv[t] * sc->ndv[t] < thresh2) { ok = 0; break; }
+            }
+            if (!ok) continue;
+            if (one_sided && c < ai - TOL) continue;
+            sc->c0s[nv] = c; sc->ab[nv] = fabs(c - ai); nv++;
+        }
+    }
+    if (nv == 0) return 1;
+    double best_a = sc->c0s[pick(nv, sc->ab, sc->c0s, NULL)], best_b = bi;
+    double W = gravity_weights(ai, k, PA, gp, sc->w);
+    double c0_g = gravity_cost1(best_a, bi, ai, bi, k, PA, PB, sc->w, phi, gp);
+    if (!(gp->g > 0.0)) W = 0.0;
+    double bonus = gp->g * gp->beta * W;
+    double delta = sqrt((c0_g + bonus) / phi);
+    double Delta = sqrt(c0_g + bonus);
+    /* window marks */
+    int mW = 0;
+    for (int64_t j = 0; j < k; j++) {
+        double dv = PB[j] - bi;
+        if (fabs(dv) < 1.0 + delta) { sc->wa[mW] = PA[j]; sc->wb[mW] = PB[j]; mW++; }
+    }
+    double sqphi = sqrt(phi);
+    int nA = phi_candidates(ai, bi, mW, sqphi, one_sided, has_bounds, blo, bhi, sc);
+    /* sample counts (upper bounds) for capacity */
+    double hgrid = gp->h;
+    double xlo = one_sided ? ai : ai - Delta;
+    double xstop = ai + Delta + hgrid / 2.0;
+    int64_t nx = (int64_t)ceil((xstop - xlo) / hgrid); if (nx < 0) nx = 0;
+    double ylo = bi - delta, yhi = bi + delta;
+    if (has_bounds) { if (blo > ylo) ylo = blo; if (bhi < yhi) yhi = bhi; }
+    int64_t ny = 0;
+    if (yhi >= ylo) { ny = (int64_t)ceil((yhi + hgrid / 2.0 - ylo) / hgrid); if (ny < 0) ny = 0; }
+    int64_t nS = gp->exhaustive ? gp->M * mW + nx * ny + (one_sided ? ny : 0) + (has_bounds ? 2 * nx : 0) : 0;
+    phi_reserve(sc, nA + nv + nS + 8);
+    int nk = nA;
+    /* pure-offset alternatives, only when strictly cheaper than the fallback */
+    for (int t = 0; t < nv; t++) {
+        double c = gravity_cost1(sc->c0s[t], bi, ai, bi, k, PA, PB, sc->w, phi, gp);
+        if (c < c0_g - 1e-12) { sc->cx[nk] = sc->c0s[t]; sc->cy[nk] = bi; nk++; }
+    }
+    if (gp->exhaustive) {
+        int64_t s0 = nk;
+        for (int j = 0; j < mW; j++)          /* arc samples, j-major */
+            for (int64_t m = 0; m < gp->M; m++) {
+                double th = (2.0 * BS_PI * (double)m) / (double)gp->M;
+                sc->cx[nk] = sc->wa[j] + cos(th); sc->cy[nk] = sc->wb[j] + sin(th); nk++;
+            }
+        for (int64_t ix = 0; ix < nx; ix++)   /* interior grid, x-major */
+            for (int64_t iy = 0; iy < ny; iy++) {
+                sc->cx[nk] = xlo + (double)ix * hgrid; sc->cy[nk] = ylo + (double)iy * hgrid; nk++;
+            }
+        if (one_sided)
+            for (int64_t iy = 0; iy < ny; iy++) { sc->cx[nk] = ai; sc->cy[nk] = ylo + (double)iy * hgrid; nk++; }
+        if (has_bounds) {
+            double vbs[2] = { blo, bhi };
+            for (int q = 0; q < 2; q++)
+                for (int64_t ix = 0; ix < nx; ix++) { sc->cx[nk] = xlo + (double)ix * hgrid; sc->cy[nk] = vbs[q]; nk++; }
+        }
+        /* dedupe samples against the analytic candidates (1e-4 D): the exact
+           point must win its ties, which is what keeps the g = 0 analytic
+           parity bit-exact */
+        int64_t out = s0;
+        for (int64_t t = s0; t < nk; t++) {
+            int same = 0;
+            for (int a = 0; a < nA; a++)
+                if (fabs(sc->cx[t] - sc->cx[a]) <= 1e-4 && fabs(sc->cy[t] - sc->cy[a]) <= 1e-4) { same = 1; break; }
+            if (!same) { sc->cx[out] = sc->cx[t]; sc->cy[out] = sc->cy[t]; out++; }
+        }
+        nk = (int)out;
+    }
+    /* filter: dominated, constraints, then validity against the window marks */
+    int nkeep = 0;
+    for (int c = 0; c < nk; c++) {
+        double cx = sc->cx[c], cy = sc->cy[c];
+        double cost = gravity_cost1(cx, cy, ai, bi, k, PA, PB, sc->w, phi, gp);
+        if (cost > c0_g + 1e-12 * fabs(c0_g)) continue;
+        if (one_sided && cx < ai - TOL) continue;
+        if (has_bounds && (cy < blo || cy > bhi)) continue;
+        for (int j = 0; j < mW; j++) {
+            double dx = cx - sc->wa[j], dy = cy - sc->wb[j];
+            if (dx * dx + dy * dy < thresh2) { cost = INFINITY; break; }
+        }
+        sc->cx[nkeep] = cx; sc->cy[nkeep] = cy; sc->cost[nkeep] = cost; nkeep++;
+    }
+    double best_c = c0_g;
+    if (nkeep) {
+        int j = pick(nkeep, sc->cost, sc->cx, sc->cy);
+        if (sc->cost[j] < c0_g - 1e-12) { best_a = sc->cx[j]; best_b = sc->cy[j]; best_c = sc->cost[j]; }
+    }
+    *oa = best_a; *ob = best_b; *ocost = best_c;
+    return 0;
+}
+
+int bs_gravity_best(double ai, double bi, int64_t k, const double *PA, const double *PB, double phi,
+                    const double *gparams, int one_sided, int has_bounds, double blo, double bhi, double *out3) {
+    gravity_params gp = gravity_from_array(gparams);
+    phi_scratch sc = phi_scratch_alloc(k > 0 ? k : 1);
+    double a, b, c;
+    int rc = gravity_best(ai, bi, k, PA, PB, phi, &gp, one_sided, has_bounds, blo, bhi, &a, &b, &c, &sc);
+    phi_scratch_free(&sc);
+    out3[0] = a; out3[1] = b; out3[2] = c;
+    return rc;
+}
+
+int bs_layout_gravity(int64_t n, const double *off, const double *val, const int64_t *order, double phi,
+                      const double *gparams, int one_sided, int has_bounds, double blo, double bhi,
+                      double *out_a, double *out_b) {
+    gravity_params gp = gravity_from_array(gparams);
+    double *PA = malloc(n * sizeof(double)), *PB = malloc(n * sizeof(double));
+    phi_scratch sc = phi_scratch_alloc(n);
+    memcpy(out_a, off, n * sizeof(double));
+    memcpy(out_b, val, n * sizeof(double));
+    int64_t k = 0; int rc = 0;
+    for (int64_t s = 0; s < n; s++) {
+        int64_t i = order[s];
+        double a, b, c;
+        if (gravity_best(off[i], val[i], k, PA, PB, phi, &gp, one_sided, has_bounds, blo, bhi, &a, &b, &c, &sc)) {
+            rc = 1; break;
+        }
+        PA[k] = a; PB[k] = b; k++;
+        out_a[i] = a; out_b[i] = b;
+    }
+    free(PA); free(PB); phi_scratch_free(&sc);
+    return rc;
 }
 
 /* ---- spine-drop: dynamic lowest-lander placement (mirrors _spine_drop_layout) ---- */
@@ -436,10 +631,14 @@ typedef struct {
     double phi; int one_sided, has_bounds; double blo, bhi;
     swarm_scratch ssc; phi_scratch psc;
     const shape_t *sh;
+    const gravity_params *gp;   /* NULL: phi or drop step */
 } placer;
 
 /* One placement attempt against the currently placed marks. 0 ok, 1 infeasible. */
 static int place_point(placer *P, int64_t i, double *a, double *b, double *cost) {
+    if (P->gp != NULL)
+        return gravity_best(P->off[i], P->val[i], P->k, P->PA, P->PB, P->phi, P->gp, P->one_sided,
+                            P->has_bounds, P->blo, P->bhi, a, b, cost, &P->psc);
     if (P->phi <= 0.0) {
         double out;
         if (min_shift_position(P->off[i], P->val[i], P->k, P->PA, P->PB, P->one_sided, &out, &P->ssc, P->sh))
@@ -458,10 +657,11 @@ static void eval_point(placer *P, eval_cache *c, int64_t i) {
     c->feas[i] = 1; c->shift[i] = fabs(a - P->off[i]); c->cost[i] = cost; c->a[i] = a; c->b[i] = b;
 }
 
-int bs_spine_drop(int64_t n, const double *cat, const double *off, const double *val,
-                  double phi, int one_sided, int has_bounds, double blo, double bhi,
-                  int bin_order, int64_t nK, const int64_t *koff, const double *kv,
-                  double half_height, double stack_height, double *out_a, double *out_b) {
+static int spine_drop_impl(int64_t n, const double *cat, const double *off, const double *val,
+                           double phi, int one_sided, int has_bounds, double blo, double bhi,
+                           int bin_order, int64_t nK, const int64_t *koff, const double *kv,
+                           double half_height, double stack_height, const gravity_params *gp,
+                           double *out_a, double *out_b) {
     shape_t sh = { nK, koff, kv, malloc((nK + 1) * sizeof(double)), malloc((nK + 1) * sizeof(double)),
                    nK ? half_height : 1.0, nK ? stack_height : 1.0 };
     shape_prep(&sh);
@@ -472,7 +672,7 @@ int bs_spine_drop(int64_t n, const double *cat, const double *off, const double 
 
     placer P = { off, val, malloc(n * sizeof(double)), malloc(n * sizeof(double)), 0,
                  phi, one_sided, has_bounds, blo, bhi,
-                 swarm_scratch_alloc(n, nK), phi_scratch_alloc(n), &sh };
+                 swarm_scratch_alloc(n, nK), phi_scratch_alloc(n), &sh, gp };
     int64_t *ord = malloc(n * sizeof(int64_t));
     int64_t *up = malloc(n * sizeof(int64_t)), *down = malloc(n * sizeof(int64_t));
     int64_t *spine = malloc(n * sizeof(int64_t)), *spine_sorted = malloc(n * sizeof(int64_t));
@@ -598,4 +798,22 @@ int bs_spine_drop(int64_t n, const double *cat, const double *off, const double 
     free(qstart); free(qlen); free(qremain); free(removed);
     free(C.cached); free(C.feas); free(C.shift); free(C.cost); free(C.a); free(C.b);
     return rc;
+}
+
+int bs_spine_drop(int64_t n, const double *cat, const double *off, const double *val,
+                  double phi, int one_sided, int has_bounds, double blo, double bhi,
+                  int bin_order, int64_t nK, const int64_t *koff, const double *kv,
+                  double half_height, double stack_height, double *out_a, double *out_b) {
+    return spine_drop_impl(n, cat, off, val, phi, one_sided, has_bounds, blo, bhi, bin_order,
+                           nK, koff, kv, half_height, stack_height, NULL, out_a, out_b);
+}
+
+int bs_spine_drop_gravity(int64_t n, const double *cat, const double *off, const double *val,
+                          double phi, const double *gparams, int one_sided, int has_bounds,
+                          double blo, double bhi, int bin_order, double *out_a, double *out_b) {
+    gravity_params gp = gravity_from_array(gparams);
+    int64_t koff0[1] = { 0 };
+    double kv0[2] = { 0.0, 0.0 };
+    return spine_drop_impl(n, cat, off, val, phi, one_sided, has_bounds, blo, bhi, bin_order,
+                           0, koff0, kv0, 1.0, 1.0, &gp, out_a, out_b);
 }
