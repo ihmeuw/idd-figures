@@ -177,7 +177,7 @@ collinear points are dropped by the hull; vertex touches and edge-along-edge
 cuts are excluded from the forbidden set (touching is allowed); containment
 is a cut with lo < a < hi like any other overlap.
 
-## Step 4: C port (stopped by decision 2026-09-02 after circle greedy + phi; spine-drop and polygon not ported)
+## Step 4: C port (session 1: circle greedy + phi; spine-drop and polygons were ported later the same day, see Session 2 B and C)
 
 **Built.** `src/idd_figures/_c/beeswarm_core.c` (~300 lines, C99, libm only):
 `bs_layout_swarm` (greedy value-exact, via the forbidden-interval consumer),
@@ -580,3 +580,107 @@ seconds per plot. The speedup pattern is the same as the other engines:
 arithmetic dominates (n=1000). The remaining per-plot factor at n=1000 is
 the outer search (roadmap item 1), which multiplies the C gain rather than
 competing with it.
+
+**Conclusions filed after B (Bobby, 2026-09-02).**
+
+- *n=1000 spine-drop+phi is search-bound, not kernel-bound, even in C.* 190 s
+  per plot is 50 evaluations of a 3.2 s layout; a smarter outer search needs
+  ~8. C got the per-layout factor; the outer-search fix (roadmap item 1)
+  gets the iteration-count factor, and they compound. Future "make it
+  interactive at large n" work points at the outer search, not at more
+  kernel work. The 50-iterations-near-the-floor behaviour is the same
+  s_min / iteration-cap bug on the API-cleanup list: the perf roadmap and
+  that cleanup item share a root cause.
+- *All layout engines port cleanly: stated as a conclusion.* Greedy swarm,
+  phi, and spine-drop have all gone bit-exact with no genuine fights; the
+  511-line kernel covers every layout mode. No layout engine is a
+  portability obstacle for the future repo decision.
+
+### C: polygon interval arithmetic in C (done)
+
+**Built.** The kernel takes a shape descriptor: the Minkowski polygons K_pq
+of `beeswarm_shapes.PolygonShape` flattened to one vertex array plus
+offsets, with `half_height` and `stack_height`. K construction (hull of
+pairwise differences, fan decomposition) stays in Python: it runs once per
+shape and is not on the hot path. In C: `shape_prep` (per-K vertical
+extents), `silhouette` (horizontal cut of one convex polygon, op-for-op the
+same arithmetic as `_silhouette`: strictly-straddling edges, vertex hits,
+interior-only heights, `hi - lo > TOL`), `forbidden_intervals` (per near
+neighbour, per K), and the value-exact step now consumes intervals from
+either source. `bs_layout_swarm` and `bs_spine_drop` gained the shape
+arguments; nK = 0 is the circle. phi with polygons stays unbuilt in both
+languages (the bridge and the core both raise). Kernel: 601 lines.
+Dispatch: polygon shapes without phi are now C-capable under
+`backend="auto"`.
+
+**Parity (measured).** `np.array_equal`, not allclose: square, triangle,
+hexagon, star-by-hull, and the 25-piece star-by-decomposition, across
+ascending / middle-out / spine orders, spine-drop with all three bin
+orders, both sidednesses, and through `layout()` dispatch. 48 new cases,
+all exactly equal. The decomposition-union case, the most intricate
+interval arithmetic in the kernel (union across 25 pieces across all near
+neighbours), is bit-exact with Python. 210 tests in the suite.
+
+**Speed (measured, same data as the Python polygon table: seed 2, 3
+categories, one-sided; one layout, exact equality checked on every row):**
+
+| n | shape | order | Python | C | speedup |
+|---|---|---|---|---|---|
+| 100 | square | ascending | 0.018 s | 0.0004 s | 43x |
+| 100 | star/decompose | ascending | 0.103 s | 0.0016 s | 66x |
+| 100 | star/decompose | spine-drop | 0.242 s | 0.0043 s | 57x |
+| 300 | square | spine-drop | 0.081 s | 0.0015 s | 53x |
+| 300 | star/hull | spine-drop | 0.100 s | 0.0024 s | 41x |
+| 300 | star/decompose | ascending | 0.323 s | 0.0108 s | 30x |
+| 300 | star/decompose | spine-drop | 1.141 s | 0.042 s | 27x |
+| 1000 | square | spine-drop | 0.445 s | 0.0145 s | 31x |
+| 1000 | star/hull | ascending | 0.101 s | 0.0052 s | 20x |
+| 1000 | star/decompose | ascending | 1.392 s | 0.101 s | 14x |
+| 1000 | star/decompose | spine-drop | not run in Python | 0.527 s | |
+
+Circle rows for reference: 11-33x (the single 1x row in the raw output was
+the first call, which includes loading the shared library).
+
+**Reading.** Polygons gain more from C than circles did (20-67x vs 10-18x)
+because the Python silhouette makes 25 vectorized numpy calls per
+neighbour set for the decomposed star, and that per-call overhead is what
+C removes. The concrete payoff: a decomposed-star plot at n=300 was 5-60 s
+in Python (15-50 optimizer steps x 0.3-1.1 s) and is 0.2-2 s in C. At
+n=1000 with spine-drop it is 0.5 s per layout, i.e. tens of seconds per
+plot under the naive search. Decompose in C is not practically useless; it
+is the case where C matters most per line of code, since the kernel change
+was ~90 lines.
+
+**Not ported, by design:** phi with polygons (unbuilt everywhere), grid
+methods (circle-only everywhere). Neither is a portability problem; they
+are unbuilt features.
+
+## Closing status (2026-09-02, end of session 2)
+
+Build work done. Everything is in idd-figures, nothing packaged.
+
+- Core: `beeswarm_core.py` (dimensionless engines, dispatch),
+  `beeswarm_shapes.py` (circle, convex, hull / decompose), `idd_beeswarm.py`
+  (matplotlib unit supplier, marker outlines), `beeswarm_c.py` (ctypes
+  bridge, explicit build), `_c/beeswarm_core.c` (601 lines: swarm, phi,
+  spine-drop, polygon intervals). Optional accelerator with guaranteed
+  Python fallback; `backend="auto"|"c"|"python"`; `has_fast_backend()`.
+- Tests: 210, all passing; every C engine bit-exact against Python; shapely
+  is a test-only oracle.
+- Commits this session: a016b39 core refactor, f5e8a0e C probe, a54b60f
+  dispatch, c6a991f record tracked, 0da74bf spine-drop in C, and the Step C
+  commit. `.claude/` remains local except this record and the decision
+  render.
+- Bugs fixed in the in-house tool along the way: unit-dependent mirror-tie
+  resolution; ellipse projection precision loss on-axis; edge-along-edge
+  contact reported as overlap; horizontal-orientation marker outlines packed
+  rotated 90 degrees.
+- Decisions on file: explicit positive-side tie-break; Minkowski-interval
+  cut (no min-distance, no shapely in production); decompose IN (visual
+  test); C ships optional with Python fallback; stop porting spine-drop
+  (then reversed by Bobby: ported); n=1000 phi is search-bound.
+- Not done, deliberately: API cleanup (v0.1 repo work), packaging, outer
+  search rewrite (roadmap item 1), phi with polygons, grids for polygons,
+  the vignette (planned separately).
+- Effort (measured, wall clock): session 1 ~4.5 h; session 2 ~3 h (A
+  remaining ~40 min, B ~50 min, C ~50 min, lint/commits/record ~40 min).

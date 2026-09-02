@@ -82,8 +82,8 @@ class TestDispatchWithKernel:
 
         cat, val = anchors
         square = PolygonShape(np.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]))
-        with pytest.raises(NotImplementedError, match="backend='c'"):
-            layout(cat, val, 0.4, 0.5, shape=square, backend="c")
+        with pytest.raises(NotImplementedError, match="circles only"):
+            layout(cat, val, 0.4, 0.5, shape=square, phi=1.0, backend="c")
         with pytest.raises(NotImplementedError, match="backend='c'"):
             layout(cat, val, 0.4, 0.5, method="hex", backend="c")
 
@@ -123,3 +123,83 @@ def test_spine_drop_validation(C):
         C.spine_drop(np.zeros(3), np.zeros(3), np.arange(3.0), bin_order="sideways")
     with pytest.raises(ValueError, match="same length"):
         C.spine_drop(np.zeros(2), np.zeros(3), np.arange(3.0))
+
+
+def _regular(k, r=0.5, rot=0.0):
+    th = rot + 2 * np.pi * np.arange(k) / k
+    return np.column_stack([r * np.cos(th), r * np.sin(th)])
+
+
+def _star(k=5, r_out=0.5, r_in=0.2):
+    th = np.pi / 2 + np.pi * np.arange(2 * k) / k
+    r = np.where(np.arange(2 * k) % 2 == 0, r_out, r_in)
+    return np.column_stack([r * np.cos(th), r * np.sin(th)])
+
+
+def _shapes():
+    from idd_figures.beeswarm_shapes import PolygonShape
+
+    return {
+        "square": PolygonShape(_regular(4, np.sqrt(0.5), np.pi / 4)),
+        "triangle": PolygonShape(_regular(3)),
+        "hexagon": PolygonShape(_regular(6)),
+        "star-hull": PolygonShape(_star(), mode="hull"),
+        "star-decompose": PolygonShape(_star(), mode="decompose"),
+    }
+
+
+@pytest.fixture
+def dense_anchors():
+    rng = np.random.default_rng(13)
+    cat = rng.integers(0, 3, 150).astype(float) * 30.0
+    val = rng.normal(size=150) * 5.0
+    return cat, val
+
+
+@pytest.mark.parametrize("name", ["square", "triangle", "hexagon", "star-hull", "star-decompose"])
+@pytest.mark.parametrize("order_name", ["ascending", "middle-out", "spine"])
+@pytest.mark.parametrize("one_sided", [False, True])
+def test_polygon_swarm_matches_python(C, dense_anchors, name, order_name, one_sided):
+    from idd_figures.beeswarm_core import _layout_swarm, _processing_order, _spine_bin_order
+
+    cat, val = dense_anchors
+    shape = _shapes()[name]
+    if order_name == "spine":
+        order = _spine_bin_order(cat, val, shape.stack_height)
+    else:
+        order = _processing_order(cat, val, order_name)
+    py = _layout_swarm(cat, val, order, shape, one_sided)
+    c = C.layout_swarm(cat, val, order, one_sided=one_sided, shape=shape)
+    assert np.array_equal(py, c), np.abs(py - c).max()
+
+
+@pytest.mark.parametrize("name", ["square", "star-hull", "star-decompose"])
+@pytest.mark.parametrize("one_sided", [False, True])
+@pytest.mark.parametrize("bin_order", ["middle-out", "ascending", "descending"])
+def test_polygon_spine_drop_matches_python(C, dense_anchors, name, one_sided, bin_order):
+    from idd_figures.beeswarm_core import _spine_drop_layout
+
+    cat, val = dense_anchors
+    shape = _shapes()[name]
+    py = _spine_drop_layout(
+        cat, cat.copy(), val, shape=shape, one_sided=one_sided, bin_order=bin_order
+    )
+    c = C.spine_drop(cat, cat.copy(), val, one_sided=one_sided, bin_order=bin_order, shape=shape)
+    assert (py is None) == (c is None)
+    assert np.array_equal(py[0], c[0]) and np.array_equal(py[1], c[1])
+
+
+def test_polygon_through_layout_dispatch(C, dense_anchors):
+    from idd_figures.beeswarm_core import layout
+
+    cat, val = dense_anchors
+    star = _shapes()["star-decompose"]
+    for kw in ({}, {"process_order": "spine-drop"}, {"process_order": "spine"}):
+        c = layout(cat, val, 0.4, 0.5, shape=star, backend="c", **kw)
+        py = layout(cat, val, 0.4, 0.5, shape=star, backend="python", **kw)
+        assert np.array_equal(c[0], py[0]) and np.array_equal(c[1], py[1])
+
+
+def test_polygon_phi_refused_in_c(C):
+    with pytest.raises(NotImplementedError, match="circles only"):
+        C.spine_drop(np.zeros(3), np.zeros(3), np.arange(3.0), phi=1.0, shape=_shapes()["square"])

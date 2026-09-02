@@ -50,7 +50,19 @@ def lib():
             raise RuntimeError(msg) from exc
     L = ctypes.CDLL(str(LIB))
     L.bs_layout_swarm.restype = ctypes.c_int
-    L.bs_layout_swarm.argtypes = [ctypes.c_int64, _F64, _F64, _I64, ctypes.c_int, _F64]
+    L.bs_layout_swarm.argtypes = [
+        ctypes.c_int64,
+        _F64,
+        _F64,
+        _I64,
+        ctypes.c_int,
+        ctypes.c_int64,
+        _I64,
+        _F64,
+        ctypes.c_double,
+        ctypes.c_double,
+        _F64,
+    ]
     L.bs_layout_phi.restype = ctypes.c_int
     L.bs_layout_phi.argtypes = [
         ctypes.c_int64,
@@ -91,6 +103,11 @@ def lib():
         ctypes.c_double,
         ctypes.c_double,
         ctypes.c_int,
+        ctypes.c_int64,
+        _I64,
+        _F64,
+        ctypes.c_double,
+        ctypes.c_double,
         _F64,
         _F64,
     ]
@@ -135,11 +152,24 @@ def _prep(off, val, order):
     return off, val, order
 
 
-def layout_swarm(off, val, order, one_sided=False):
-    """C twin of ``beeswarm_core._layout_swarm``. Returns new offsets or None."""
+def _shape_args(shape):
+    """Flatten a beeswarm_shapes shape for the kernel: (nK, koff, kv, half_height,
+    stack_height). The circle (or None) is nK = 0 with dummy arrays."""
+    if shape is None or shape.kind == "circle":
+        return 0, np.zeros(1, dtype=np.int64), np.zeros(2, dtype=np.float64), 1.0, 1.0
+    counts = np.array([len(K) for K in shape.K], dtype=np.int64)
+    koff = np.ascontiguousarray(np.concatenate([[0], np.cumsum(counts)]).astype(np.int64))
+    kv = np.ascontiguousarray(np.vstack(shape.K), dtype=np.float64).ravel()
+    return len(shape.K), koff, kv, float(shape.half_height), float(shape.stack_height)
+
+
+def layout_swarm(off, val, order, one_sided=False, shape=None):
+    """C twin of ``beeswarm_core._layout_swarm``. Returns new offsets or None.
+    ``shape`` is a beeswarm_shapes shape (None or CIRCLE for the unit disk)."""
     off, val, order = _prep(off, val, order)
     out = np.empty_like(off)
-    rc = lib().bs_layout_swarm(off.size, off, val, order, int(one_sided), out)
+    nK, koff, kv, hh, sh = _shape_args(shape)
+    rc = lib().bs_layout_swarm(off.size, off, val, order, int(one_sided), nK, koff, kv, hh, sh, out)
     return None if rc else out
 
 
@@ -159,9 +189,11 @@ def layout_phi(off, val, order, phi, one_sided=False, val_bounds=None):
 _BIN_ORDER = {"middle-out": 0, "ascending": 1, "descending": 2}
 
 
-def spine_drop(cat, off, val, phi=None, one_sided=False, val_bounds=None, bin_order="middle-out"):
-    """C twin of ``beeswarm_core._spine_drop_layout`` for the circle shape.
-    Returns (new_off, new_val) or None."""
+def spine_drop(
+    cat, off, val, phi=None, one_sided=False, val_bounds=None, bin_order="middle-out", shape=None
+):
+    """C twin of ``beeswarm_core._spine_drop_layout``. Returns (new_off, new_val)
+    or None. ``shape`` as in ``layout_swarm``; phi requires the circle."""
     if bin_order not in _BIN_ORDER:
         msg = f"bin_order must be 'middle-out', 'ascending', or 'descending', got {bin_order!r}"
         raise ValueError(msg)
@@ -170,6 +202,10 @@ def spine_drop(cat, off, val, phi=None, one_sided=False, val_bounds=None, bin_or
     if cat.shape != off.shape:
         msg = "cat, off, val must have the same length"
         raise ValueError(msg)
+    nK, koff, kv, hh, sh = _shape_args(shape)
+    if phi is not None and nK:
+        msg = "phi (value moves) is implemented for circles only"
+        raise NotImplementedError(msg)
     out_a = np.empty_like(off)
     out_b = np.empty_like(val)
     has_b = val_bounds is not None
@@ -185,6 +221,11 @@ def spine_drop(cat, off, val, phi=None, one_sided=False, val_bounds=None, bin_or
         lo,
         hi,
         _BIN_ORDER[bin_order],
+        nK,
+        koff,
+        kv,
+        hh,
+        sh,
         out_a,
         out_b,
     )

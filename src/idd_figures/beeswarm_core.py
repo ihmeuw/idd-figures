@@ -637,8 +637,8 @@ def _resolve_backend(backend, c_capable):
     """Return the kernel module to use, or None for pure Python.
 
     ``c_capable`` says whether the requested configuration has a C engine at
-    all (today: circle shape, swarm method, any order including spine-drop,
-    with or without phi). "auto" takes C when both available and capable, else Python
+    all (today: swarm method with any order including spine-drop; circle with
+    or without phi; polygon shapes without phi). "auto" takes C when both available and capable, else Python
     silently. "c" raises when the kernel is absent (RuntimeError, with the
     build instruction) or when the configuration has no C engine
     (NotImplementedError); it never falls back. "python" always runs Python.
@@ -659,7 +659,7 @@ def _resolve_backend(backend, c_capable):
         if not c_capable:
             msg = (
                 "backend='c' has no kernel for this configuration (grid methods and "
-                "non-circle shapes run in Python)"
+                "phi with non-circle shapes run in Python)"
             )
             raise NotImplementedError(msg)
         return kern
@@ -724,7 +724,9 @@ def layout(
     val = np.asarray(val, dtype=float)
     _validate(method, phi, shape)
     is_spine_drop = isinstance(process_order, str) and process_order == "spine-drop"
-    kern = _resolve_backend(backend, c_capable=(method == "swarm" and shape.kind == "circle"))
+    kern = _resolve_backend(
+        backend, c_capable=(method == "swarm" and (shape.kind == "circle" or phi is None))
+    )
     a = cat / dx
     b = val / dy
     r = shape.half_width / (1.0 + gap_fraction)
@@ -736,7 +738,14 @@ def layout(
     if method == "swarm":
         if is_spine_drop and kern is not None:
             pair = kern.spine_drop(
-                cat, a, b, phi=phi, one_sided=one_sided, val_bounds=val_bounds, bin_order=bin_order
+                cat,
+                a,
+                b,
+                phi=phi,
+                one_sided=one_sided,
+                val_bounds=val_bounds,
+                bin_order=bin_order,
+                shape=shape,
             )
             if pair is None:
                 return None
@@ -762,7 +771,7 @@ def layout(
                 order = _processing_order(cat, val, process_order)
             if phi is None:
                 if kern is not None:
-                    a_new = kern.layout_swarm(a, b, order, one_sided=one_sided)
+                    a_new = kern.layout_swarm(a, b, order, one_sided=one_sided, shape=shape)
                 else:
                     a_new = _layout_swarm(a, b, order, shape, one_sided=one_sided)
                 if a_new is None:

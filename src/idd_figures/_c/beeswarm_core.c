@@ -30,54 +30,141 @@ static int pick(int n, const double *values, const double *p1, const double *p2)
     return 0;
 }
 
+/* ---- collision shapes: the circle (closed form) or a set of convex Minkowski
+ * polygons K_pq built once in Python (beeswarm_shapes.PolygonShape.K), passed
+ * flat: kv = x0,y0,x1,y1,... for all K, koff[q]..koff[q+1] the vertex range of
+ * K number q. Mirrors PolygonShape.forbidden / _silhouette op for op. ---- */
+
+typedef struct {
+    int64_t nK;             /* 0 -> unit circle */
+    const int64_t *koff;    /* nK + 1 vertex offsets */
+    const double *kv;       /* flat vertices */
+    double *bmin, *bmax;    /* per-K vertical extent, computed at entry */
+    double half_height;     /* near-filter window (circle: 1) */
+    double stack_height;    /* no-shift contact height (circle: 1) */
+} shape_t;
+
+static void shape_prep(shape_t *sh) {
+    for (int64_t q = 0; q < sh->nK; q++) {
+        double mn = INFINITY, mx = -INFINITY;
+        for (int64_t e = sh->koff[q]; e < sh->koff[q + 1]; e++) {
+            double b = sh->kv[2 * e + 1];
+            if (b < mn) mn = b;
+            if (b > mx) mx = b;
+        }
+        sh->bmin[q] = mn; sh->bmax[q] = mx;
+    }
+}
+
+/* Horizontal cut of convex polygon q at height h. 1 if the line cuts the
+ * interior (lo < hi), else 0: touching at a vertex or along a top/bottom
+ * edge is not overlap. Same arithmetic as beeswarm_shapes._silhouette. */
+static int silhouette(const shape_t *sh, int64_t q, double h, double *lo, double *hi) {
+    if (!(h > sh->bmin[q] + TOL && h < sh->bmax[q] - TOL)) return 0;
+    int64_t v0 = sh->koff[q], nv = sh->koff[q + 1] - v0;
+    double mn = INFINITY, mx = -INFINITY;
+    for (int64_t e = 0; e < nv; e++) {
+        int64_t f = (e + 1) % nv;
+        double pa = sh->kv[2 * (v0 + e)], pb = sh->kv[2 * (v0 + e) + 1];
+        double qa = sh->kv[2 * (v0 + f)], qb = sh->kv[2 * (v0 + f) + 1];
+        double pbh = pb - h, qbh = qb - h;
+        if (pbh * qbh < 0.0) {
+            double denom = qb - pb;
+            double t = -pbh / denom;
+            double a = pa + t * (qa - pa);
+            if (a < mn) mn = a;
+            if (a > mx) mx = a;
+        }
+        if (fabs(pbh) <= TOL) {
+            if (pa < mn) mn = pa;
+            if (pa > mx) mx = pa;
+        }
+    }
+    if (!(mx - mn > TOL)) return 0;  /* also false when nothing was hit (inf - -inf is inf... guard below) */
+    if (mn == INFINITY) return 0;
+    *lo = mn; *hi = mx;
+    return 1;
+}
+
+/* Absolute forbidden intervals (L, H) for a mark at value bi against the k
+ * placed marks. Returns the count. Capacity must be >= k * max(nK, 1). */
+static int64_t forbidden_intervals(const shape_t *sh, double bi, int64_t k, const double *PA,
+                                   const double *PB, double *L, double *H) {
+    int64_t m = 0;
+    if (sh->nK == 0) {
+        for (int64_t j = 0; j < k; j++) {
+            double dv = bi - PB[j];
+            if (fabs(dv) < 1.0) {
+                double hh = sqrt(1.0 - dv * dv);
+                L[m] = PA[j] - hh; H[m] = PA[j] + hh; m++;
+            }
+        }
+        return m;
+    }
+    for (int64_t j = 0; j < k; j++) {
+        double dv = bi - PB[j];
+        if (!(fabs(dv) < sh->half_height)) continue;
+        for (int64_t q = 0; q < sh->nK; q++) {
+            double lo, hi;
+            if (silhouette(sh, q, dv, &lo, &hi)) { L[m] = PA[j] + lo; H[m] = PA[j] + hi; m++; }
+        }
+    }
+    return m;
+}
+
 /* ---- value-exact step: smallest |shift| outside every forbidden interval ---- */
 
 typedef struct { double *L, *H, *cands, *ash; } swarm_scratch;
 
-static int min_shift_position(double ai, double bi, int k, const double *PA, const double *PB,
-                              int one_sided, double *out, swarm_scratch *sc) {
-    int m = 0;
-    for (int j = 0; j < k; j++) {
-        double dv = bi - PB[j];
-        if (fabs(dv) < 1.0) {
-            double h = sqrt(1.0 - dv * dv);
-            sc->L[m] = PA[j] - h; sc->H[m] = PA[j] + h; m++;
-        }
-    }
+static swarm_scratch swarm_scratch_alloc(int64_t n, int64_t nK) {
+    int64_t cap = n * (nK > 1 ? nK : 1);
+    swarm_scratch sc = { malloc(cap * sizeof(double)), malloc(cap * sizeof(double)),
+                         malloc(2 * cap * sizeof(double)), malloc(2 * cap * sizeof(double)) };
+    return sc;
+}
+
+static void swarm_scratch_free(swarm_scratch *sc) { free(sc->L); free(sc->H); free(sc->cands); free(sc->ash); }
+
+static int min_shift_position(double ai, double bi, int64_t k, const double *PA, const double *PB,
+                              int one_sided, double *out, swarm_scratch *sc, const shape_t *sh) {
+    int64_t m = forbidden_intervals(sh, bi, k, PA, PB, sc->L, sc->H);
     if (m == 0) { *out = ai; return 0; }
     int inside = 0;
-    for (int j = 0; j < m; j++) if (ai > sc->L[j] + TOL && ai < sc->H[j] - TOL) { inside = 1; break; }
+    for (int64_t j = 0; j < m; j++) if (ai > sc->L[j] + TOL && ai < sc->H[j] - TOL) { inside = 1; break; }
     if (!inside) { *out = ai; return 0; }
-    int nc = 0;
+    int64_t nc = 0;
     for (int pass = 0; pass < 2; pass++) {
-        for (int j = 0; j < m; j++) {
+        for (int64_t j = 0; j < m; j++) {
             double c = pass == 0 ? sc->H[j] : sc->L[j];
             int bad = 0;
-            for (int t = 0; t < m; t++) if (c > sc->L[t] + TOL && c < sc->H[t] - TOL) { bad = 1; break; }
+            for (int64_t t = 0; t < m; t++) if (c > sc->L[t] + TOL && c < sc->H[t] - TOL) { bad = 1; break; }
             if (bad) continue;
             if (one_sided && c < ai - TOL) continue;
             sc->cands[nc] = c; sc->ash[nc] = fabs(c - ai); nc++;
         }
     }
     if (nc == 0) return 1;
-    *out = sc->cands[pick(nc, sc->ash, sc->cands, NULL)];
+    *out = sc->cands[pick((int)nc, sc->ash, sc->cands, NULL)];
     return 0;
 }
 
 int bs_layout_swarm(int64_t n, const double *off, const double *val, const int64_t *order,
-                    int one_sided, double *out) {
+                    int one_sided, int64_t nK, const int64_t *koff, const double *kv,
+                    double half_height, double stack_height, double *out) {
+    shape_t sh = { nK, koff, kv, malloc((nK + 1) * sizeof(double)), malloc((nK + 1) * sizeof(double)),
+                   nK ? half_height : 1.0, nK ? stack_height : 1.0 };
+    shape_prep(&sh);
     double *PA = malloc(n * sizeof(double)), *PB = malloc(n * sizeof(double));
-    swarm_scratch sc = { malloc(n * sizeof(double)), malloc(n * sizeof(double)),
-                         malloc(2 * n * sizeof(double)), malloc(2 * n * sizeof(double)) };
+    swarm_scratch sc = swarm_scratch_alloc(n, nK);
     memcpy(out, off, n * sizeof(double));
-    int k = 0, rc = 0;
+    int64_t k = 0; int rc = 0;
     for (int64_t s = 0; s < n; s++) {
         int64_t i = order[s];
         double ai = off[i];
-        if (k && min_shift_position(off[i], val[i], k, PA, PB, one_sided, &ai, &sc)) { rc = 1; break; }
+        if (k && min_shift_position(off[i], val[i], k, PA, PB, one_sided, &ai, &sc, &sh)) { rc = 1; break; }
         PA[k] = ai; PB[k] = val[i]; k++; out[i] = ai;
     }
-    free(PA); free(PB); free(sc.L); free(sc.H); free(sc.cands); free(sc.ash);
+    free(PA); free(PB); swarm_scratch_free(&sc); free(sh.bmin); free(sh.bmax);
     return rc;
 }
 
@@ -348,13 +435,14 @@ typedef struct {
     double *PA, *PB; int64_t k;
     double phi; int one_sided, has_bounds; double blo, bhi;
     swarm_scratch ssc; phi_scratch psc;
+    const shape_t *sh;
 } placer;
 
 /* One placement attempt against the currently placed marks. 0 ok, 1 infeasible. */
 static int place_point(placer *P, int64_t i, double *a, double *b, double *cost) {
     if (P->phi <= 0.0) {
         double out;
-        if (min_shift_position(P->off[i], P->val[i], (int)P->k, P->PA, P->PB, P->one_sided, &out, &P->ssc))
+        if (min_shift_position(P->off[i], P->val[i], P->k, P->PA, P->PB, P->one_sided, &out, &P->ssc, P->sh))
             return 1;
         *a = out; *b = P->val[i]; *cost = (out - P->off[i]) * (out - P->off[i]);
         return 0;
@@ -372,17 +460,19 @@ static void eval_point(placer *P, eval_cache *c, int64_t i) {
 
 int bs_spine_drop(int64_t n, const double *cat, const double *off, const double *val,
                   double phi, int one_sided, int has_bounds, double blo, double bhi,
-                  int bin_order, double *out_a, double *out_b) {
-    const double thresh = 1.0 - TOL;  /* circle stack_height = 1 */
+                  int bin_order, int64_t nK, const int64_t *koff, const double *kv,
+                  double half_height, double stack_height, double *out_a, double *out_b) {
+    shape_t sh = { nK, koff, kv, malloc((nK + 1) * sizeof(double)), malloc((nK + 1) * sizeof(double)),
+                   nK ? half_height : 1.0, nK ? stack_height : 1.0 };
+    shape_prep(&sh);
+    const double thresh = sh.stack_height - TOL;
     int rc = 0;
     memcpy(out_a, off, n * sizeof(double));
     memcpy(out_b, val, n * sizeof(double));
 
     placer P = { off, val, malloc(n * sizeof(double)), malloc(n * sizeof(double)), 0,
                  phi, one_sided, has_bounds, blo, bhi,
-                 { malloc(n * sizeof(double)), malloc(n * sizeof(double)),
-                   malloc(2 * n * sizeof(double)), malloc(2 * n * sizeof(double)) },
-                 phi_scratch_alloc(n) };
+                 swarm_scratch_alloc(n, nK), phi_scratch_alloc(n), &sh };
     int64_t *ord = malloc(n * sizeof(int64_t));
     int64_t *up = malloc(n * sizeof(int64_t)), *down = malloc(n * sizeof(int64_t));
     int64_t *spine = malloc(n * sizeof(int64_t)), *spine_sorted = malloc(n * sizeof(int64_t));
@@ -501,8 +591,8 @@ int bs_spine_drop(int64_t n, const double *cat, const double *off, const double 
         if (!placed) rc = 1;  /* some points have no valid position at this size */
     }
 
-    free(P.PA); free(P.PB); free(P.ssc.L); free(P.ssc.H); free(P.ssc.cands); free(P.ssc.ash);
-    phi_scratch_free(&P.psc);
+    free(P.PA); free(P.PB); swarm_scratch_free(&P.ssc);
+    phi_scratch_free(&P.psc); free(sh.bmin); free(sh.bmax);
     free(ord); free(up); free(down); free(spine); free(spine_sorted); free(v); free(sv);
     free(in_spine); free(rest); free(rest_bin); free(keys); free(seen); free(qids);
     free(qstart); free(qlen); free(qremain); free(removed);
