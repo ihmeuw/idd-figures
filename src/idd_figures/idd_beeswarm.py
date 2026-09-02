@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.markers import MarkerStyle
 
-from idd_figures.beeswarm_core import find_optimal_size, layout
+from idd_figures.beeswarm_core import Gravity, find_optimal_size, layout  # noqa: F401
 from idd_figures.beeswarm_shapes import CIRCLE, PolygonShape, _dedupe_closed, offset_polygon
 
 SCATTER_LW = 2.0  # linewidth (points) of the drawn dots; the stroke straddles
@@ -137,6 +137,7 @@ def position_all_points(
     marker="o",
     shape_mode="hull",
     backend="auto",
+    gravity=None,
 ):
     """Lay out one dot size: returns (result df, max |offset| + radius), or
     (None, None) if some point has no valid position at this ``s``.
@@ -168,6 +169,7 @@ def position_all_points(
         gap_fraction=gap_fraction,
         shape=marker_shape(marker, s, fig.dpi, gap_fraction, shape_mode, orient),
     backend=backend,
+    gravity=gravity,
     )
     if out is None:
         return None, None
@@ -200,6 +202,7 @@ def find_optimal_s(
     marker="o",
     shape_mode="hull",
     backend="auto",
+    gravity=None,
 ):
     """Largest ``s`` whose max |offset| + radius fits in ``margin``.
 
@@ -239,6 +242,7 @@ def find_optimal_s(
         val_frame=_value_frame(ax, orient),
         shape=CIRCLE if marker == "o" else shape_at,
     backend=backend,
+    gravity=gravity,
     )
     for h in history:
         h["s_test"] = marker_size_from_diameter_px(h["d_test"], fig.dpi, gap_fraction)
@@ -283,6 +287,7 @@ def idd_beeswarm(
     marker="o",
     shape_mode="hull",
     backend="auto",
+    gravity=None,
 ):
     """Auto-sized beeswarm of ``y_var`` per ``x_var`` category.
 
@@ -363,6 +368,7 @@ def idd_beeswarm(
         marker=marker,
         shape_mode=shape_mode,
     backend=backend,
+    gravity=gravity,
     )
 
     final_data = data.join(final_positions[["xnew", "ynew"]])

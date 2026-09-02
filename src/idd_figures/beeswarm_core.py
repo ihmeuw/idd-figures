@@ -19,6 +19,7 @@ so its meaning is unchanged by the normalization.
 """
 
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -197,38 +198,15 @@ def _ellipse_closest(qx, qy, alpha, beta):
     return a2 * ax_ / (s + da) * sx, b2 * ay_ / (s + db) * sy
 
 
-def _phi_best(ai, bi, PA, PB, D, phi, one_sided=False, val_bounds=None):
-    """Best position for one point anchored at (ai, bi) against the placed
-    dots (PA, PB): the argmin of doff^2 + phi * dval^2 over valid positions,
-    the per-point step of ``_layout_phi``, reused by the dynamic-order
-    engines. Returns (a, b, cost), or None if no valid position exists.
+def _phi_candidates(ai, bi, wa, wb, D, sqphi, one_sided=False, val_bounds=None):
+    """The analytic candidate positions for the phi step against the window
+    marks (wa, wb): metric projections onto each circle (in sqrt(phi)-scaled
+    space), circle-circle intersections, and circle hits on the active
+    constraint lines (baseline when one_sided, frame edges when bounded, plus
+    their corner). Returns (cx, cy). Shared by ``_phi_best`` and
+    ``_gravity_best``; at g = 0 these candidates are what makes gravity
+    reproduce phi exactly.
     """
-    thresh2 = (D - TOL) ** 2
-    sqphi = np.sqrt(phi)
-    dv = PB - bi
-    near0 = np.abs(dv) < D
-    if not near0.any():
-        return ai, bi, 0.0
-    na, ndv = PA[near0], dv[near0]
-    if not ((na - ai) ** 2 + ndv * ndv < thresh2).any():
-        return ai, bi, 0.0
-    # pure-offset fallback: its cost c0 caps useful value moves
-    da = np.sqrt(D * D - ndv * ndv)
-    cands0 = np.concatenate([na + da, na - da])
-    d2 = (cands0[:, None] - na[None, :]) ** 2 + (ndv * ndv)[None, :]
-    ok0 = (d2 >= thresh2).all(axis=1)
-    if one_sided:
-        ok0 &= cands0 >= ai - TOL
-    valid0 = cands0[ok0]
-    if valid0.size == 0:
-        return None
-    best_a = valid0[_pick(np.abs(valid0 - ai), valid0)]
-    best_b = bi
-    c0 = (best_a - ai) ** 2
-
-    delta = np.sqrt(c0 / phi)
-    nearW = np.abs(dv) < D + delta
-    wa, wb = PA[nearW], PB[nearW]
     # candidates: metric projection onto each circle...
     ex, ey = _ellipse_closest(ai - wa, (bi - wb) * sqphi, D, D * sqphi)
     cx = wa + ex
@@ -271,6 +249,42 @@ def _phi_best(ai, bi, PA, PB, D, phi, one_sided=False, val_bounds=None):
             if one_sided:  # corner of both constraints
                 cx = np.concatenate([cx, [ai]])
                 cy = np.concatenate([cy, [vb]])
+    return cx, cy
+
+
+def _phi_best(ai, bi, PA, PB, D, phi, one_sided=False, val_bounds=None):
+    """Best position for one point anchored at (ai, bi) against the placed
+    dots (PA, PB): the argmin of doff^2 + phi * dval^2 over valid positions,
+    the per-point step of ``_layout_phi``, reused by the dynamic-order
+    engines. Returns (a, b, cost), or None if no valid position exists.
+    """
+    thresh2 = (D - TOL) ** 2
+    sqphi = np.sqrt(phi)
+    dv = PB - bi
+    near0 = np.abs(dv) < D
+    if not near0.any():
+        return ai, bi, 0.0
+    na, ndv = PA[near0], dv[near0]
+    if not ((na - ai) ** 2 + ndv * ndv < thresh2).any():
+        return ai, bi, 0.0
+    # pure-offset fallback: its cost c0 caps useful value moves
+    da = np.sqrt(D * D - ndv * ndv)
+    cands0 = np.concatenate([na + da, na - da])
+    d2 = (cands0[:, None] - na[None, :]) ** 2 + (ndv * ndv)[None, :]
+    ok0 = (d2 >= thresh2).all(axis=1)
+    if one_sided:
+        ok0 &= cands0 >= ai - TOL
+    valid0 = cands0[ok0]
+    if valid0.size == 0:
+        return None
+    best_a = valid0[_pick(np.abs(valid0 - ai), valid0)]
+    best_b = bi
+    c0 = (best_a - ai) ** 2
+
+    delta = np.sqrt(c0 / phi)
+    nearW = np.abs(dv) < D + delta
+    wa, wb = PA[nearW], PB[nearW]
+    cx, cy = _phi_candidates(ai, bi, wa, wb, D, sqphi, one_sided, val_bounds)
     cost = (cx - ai) ** 2 + phi * (cy - bi) ** 2
     keep = cost <= c0 * (1.0 + 1e-12)  # dominated moves out
     if one_sided:
@@ -286,6 +300,232 @@ def _phi_best(ai, bi, PA, PB, D, phi, one_sided=False, val_bounds=None):
         if cost[j] < c0 - 1e-12:  # ties keep the value-exact move
             best_a, best_b, best_c = cx[j], cy[j], cost[j]
     return best_a, best_b, best_c
+
+
+@dataclass(frozen=True)
+class Gravity:
+    """Gravity layout parameters, in collision-diameter units.
+
+    The step cost for a mark anchored at (ai, bi), candidate (x, y), placed
+    marks (PA_j, PB_j), with doff = x - ai and dval = y - bi:
+
+        C_g = doff^2 (1 + g kappa doff^2) + phi dval^2 - g beta rho(x, y)
+        rho = sum_j w_j exp(-((x - PA_j)^2 + (y - PB_j)^2) / (2 sigma^2))
+        w_j = exp(-|PA_j - ai| / lam)
+
+    ``g`` is the single strength dial; g = 0 is exactly phi+drop. ``kappa``
+    grows the offset price with distance from the mark's OWN category line
+    (offset ai), so far-out marks trade value moves more readily. The basin
+    (``beta`` depth, ``sigma`` width) rewards landing inside the smoothed
+    density of placed marks, each weighted by ITS distance from this mark's
+    line (``lam``): a per-mark, local nestling force. ``h`` is the interior
+    grid spacing (default sigma / 8, so the grid resolves the basin; a
+    user value above sigma / 2 is refused); ``M`` the boundary samples per
+    near circle. ``exhaustive=False`` restricts the search to phi's analytic
+    candidate set (plus the valid pure-offset positions), evaluated under
+    C_g: exact phi+drop at g = 0, a cheap heuristic for g > 0.
+
+    Guarantee (exhaustive): exactly feasible; optimal up to h for g > 0; at
+    g = 0 never worse than phi+drop at any step and identical wherever phi's
+    analytic candidates contain the optimum (measured 2026-09-02: phi's set
+    misses a cheaper feasible arc point at ~5% of colliding placements, which
+    the sampler finds). Bit-exact reproduction of phi+drop at g = 0 is
+    ``exhaustive=False``.
+    """
+
+    g: float
+    kappa: float = 1.0
+    beta: float = 1.0
+    sigma: float = 1.5
+    lam: float = 2.0
+    h: float | None = None
+    M: int = 64
+    exhaustive: bool = True
+
+    def __post_init__(self):
+        if not self.g >= 0:
+            msg = f"g must be >= 0, got {self.g!r}"
+            raise ValueError(msg)
+        if self.kappa < 0 or self.beta < 0:
+            msg = "kappa and beta must be >= 0"
+            raise ValueError(msg)
+        if not (self.sigma > 0 and self.lam > 0):
+            msg = "sigma and lam must be > 0"
+            raise ValueError(msg)
+        if self.h is not None and not (0 < self.h <= self.sigma / 2):
+            msg = f"h must be in (0, sigma/2] so the grid resolves the basin, got {self.h!r}"
+            raise ValueError(msg)
+        if self.M < 8:
+            msg = "M must be >= 8"
+            raise ValueError(msg)
+
+    @property
+    def spacing(self):
+        return self.h if self.h is not None else self.sigma / 8.0
+
+
+def _gravity_cost(cx, cy, ai, bi, PA, PB, phi, grav):
+    """C_g at candidate positions (cx, cy). rho sums over ALL placed marks, in
+    chunks to bound memory. At g = 0 the growth factor is exactly 1.0 and the
+    basin term is -0.0, so the result equals the phi cost bit for bit."""
+    doff = cx - ai
+    dval = cy - bi
+    cost = doff**2 * (1.0 + grav.g * grav.kappa * doff**2) + phi * dval**2
+    if grav.g == 0.0 or grav.beta == 0.0 or PA.size == 0:
+        return cost
+    w = np.exp(-np.abs(PA - ai) / grav.lam)
+    inv = 1.0 / (2.0 * grav.sigma * grav.sigma)
+    rho = np.zeros_like(cost)
+    step = max(1, 2_000_000 // max(cx.size, 1))
+    for j0 in range(0, PA.size, step):
+        pa, pb, ww = PA[j0 : j0 + step], PB[j0 : j0 + step], w[j0 : j0 + step]
+        d2 = (cx[:, None] - pa[None, :]) ** 2 + (cy[:, None] - pb[None, :]) ** 2
+        rho += (ww[None, :] * np.exp(-d2 * inv)).sum(axis=1)
+    return cost - grav.g * grav.beta * rho
+
+
+def _gravity_reference(ai, bi, PA, PB, phi, grav, one_sided=False):
+    """The pure-offset fallback and the closed-form window for one placement.
+
+    Returns (best_a, c0_g, delta, Delta, na, ndv) or None when no pure-offset
+    position is valid. ``best_a`` is chosen by the phi rule (smallest |shift|,
+    ties positive) so the fallback POSITION is phi's; ``c0_g`` is its gravity
+    cost. The window comes from C_g >= doff^2 + phi dval^2 - g beta W with
+    W = sum_j w_j: a winner has |dval| <= delta = sqrt((c0_g + g beta W)/phi)
+    and |doff| <= Delta = sqrt(c0_g + g beta W). At g = 0 this is exactly
+    phi's window.
+    """
+    thresh2 = (1.0 - TOL) ** 2
+    dv = PB - bi
+    near0 = np.abs(dv) < 1.0
+    na, ndv = PA[near0], dv[near0]
+    da = np.sqrt(1.0 - ndv * ndv)
+    cands0 = np.concatenate([na + da, na - da])
+    d2 = (cands0[:, None] - na[None, :]) ** 2 + (ndv * ndv)[None, :]
+    ok0 = (d2 >= thresh2).all(axis=1)
+    if one_sided:
+        ok0 &= cands0 >= ai - TOL
+    valid0 = cands0[ok0]
+    if valid0.size == 0:
+        return None
+    best_a = valid0[_pick(np.abs(valid0 - ai), valid0)]
+    c0_g = float(_gravity_cost(np.array([best_a]), np.array([bi]), ai, bi, PA, PB, phi, grav)[0])
+    W = float(np.exp(-np.abs(PA - ai) / grav.lam).sum()) if grav.g > 0 else 0.0
+    bonus = grav.g * grav.beta * W
+    delta = np.sqrt((c0_g + bonus) / phi)
+    Delta = np.sqrt(c0_g + bonus)
+    return best_a, c0_g, delta, Delta, valid0
+
+
+def _gravity_best(ai, bi, PA, PB, phi, grav, one_sided=False, val_bounds=None):
+    """Gravity step: argmin of C_g over feasible positions, by exhaustive search
+    inside the closed-form window. Returns (a, b, cost) or None.
+
+    Same gate, fallback, filters, and tie-break as ``_phi_best``; the
+    candidate set is phi's analytic candidates PLUS every valid pure-offset
+    position, M boundary samples per near circle, an interior grid at
+    spacing ``grav.spacing`` over the window, and samples along the active
+    constraint lines. Feasibility is checked exactly for every candidate; the
+    minimum is optimal up to the grid spacing for g > 0 and exact at g = 0,
+    where the analytic candidates dominate every sample (except at
+    measure-zero exact ties).
+    """
+    thresh2 = (1.0 - TOL) ** 2
+    dv = PB - bi
+    near0 = np.abs(dv) < 1.0
+    if not near0.any():
+        return ai, bi, 0.0
+    if not ((PA[near0] - ai) ** 2 + dv[near0] ** 2 < thresh2).any():
+        return ai, bi, 0.0
+    ref = _gravity_reference(ai, bi, PA, PB, phi, grav, one_sided)
+    if ref is None:
+        return None
+    best_a, c0_g, delta, Delta, valid0 = ref
+    best_b = bi
+    nearW = np.abs(dv) < 1.0 + delta
+    wa, wb = PA[nearW], PB[nearW]
+    sqphi = np.sqrt(phi)
+    ax_, ay_ = _phi_candidates(ai, bi, wa, wb, 1.0, sqphi, one_sided, val_bounds)
+    parts_x = [ax_, valid0]
+    parts_y = [ay_, np.full(valid0.size, bi)]
+    if grav.exhaustive:
+        sx_parts, sy_parts = [], []
+        # boundary samples on every near circle
+        th = 2.0 * np.pi * np.arange(grav.M) / grav.M
+        sx_parts.append((wa[:, None] + np.cos(th)[None, :]).ravel())
+        sy_parts.append((wb[:, None] + np.sin(th)[None, :]).ravel())
+        # interior grid over the window box
+        hgrid = grav.spacing
+        xlo = ai if one_sided else ai - Delta
+        gx = np.arange(xlo, ai + Delta + hgrid / 2, hgrid)
+        ylo, yhi = bi - delta, bi + delta
+        if val_bounds is not None:
+            ylo, yhi = max(ylo, val_bounds[0]), min(yhi, val_bounds[1])
+        gy = np.arange(ylo, yhi + hgrid / 2, hgrid) if yhi >= ylo else np.empty(0)
+        GX, GY = np.meshgrid(gx, gy, indexing="ij")
+        sx_parts.append(GX.ravel())
+        sy_parts.append(GY.ravel())
+        # active constraint lines
+        if one_sided:
+            sx_parts.append(np.full(gy.size, ai))
+            sy_parts.append(gy)
+        if val_bounds is not None:
+            for vb in val_bounds:
+                sx_parts.append(gx)
+                sy_parts.append(np.full(gx.size, vb))
+        sx = np.concatenate(sx_parts)
+        sy = np.concatenate(sy_parts)
+        # a sample within ~sqrt(TOL) of an analytic candidate ties it in cost
+        # (cost is quadratic near an optimum) and would win the tie-break on
+        # rounding noise; drop samples within 1e-4 D of any analytic point so
+        # the exact candidate stands. Nothing is lost: a sample that close
+        # cannot improve on the analytic point by more than ~1e-8.
+        if ax_.size:
+            same = (np.abs(sx[:, None] - ax_[None, :]) <= 1e-4) & (
+                np.abs(sy[:, None] - ay_[None, :]) <= 1e-4
+            )
+            keep_s = ~same.any(axis=1)
+            sx, sy = sx[keep_s], sy[keep_s]
+        parts_x.append(sx)
+        parts_y.append(sy)
+    cx = np.concatenate(parts_x)
+    cy = np.concatenate(parts_y)
+    cost = _gravity_cost(cx, cy, ai, bi, PA, PB, phi, grav)
+    keep = cost <= c0_g + 1e-12 * abs(c0_g)  # dominated moves out
+    if one_sided:
+        keep &= cx >= ai - TOL
+    if val_bounds is not None:
+        keep &= (cy >= val_bounds[0]) & (cy <= val_bounds[1])
+    cx, cy, cost = cx[keep], cy[keep], cost[keep]
+    best_c = c0_g
+    if cx.size:
+        dd2 = (cx[:, None] - wa[None, :]) ** 2 + (cy[:, None] - wb[None, :]) ** 2
+        cost = np.where((dd2 >= thresh2).all(axis=1), cost, np.inf)
+        j = _pick(cost, cx, cy)
+        if cost[j] < c0_g - 1e-12:  # ties keep the fallback
+            best_a, best_b, best_c = cx[j], cy[j], cost[j]
+    return best_a, best_b, best_c
+
+
+def _layout_gravity(off, val, order, phi, grav, one_sided=False, val_bounds=None):
+    """Greedy swarm with gravity moves: ``_layout_phi`` with the step swapped.
+    Returns (new_off, new_val), or None."""
+    n = off.size
+    new_off = off.astype(float).copy()
+    new_val = val.astype(float).copy()
+    PA = np.empty(n)
+    PB = np.empty(n)
+    for k, i in enumerate(order):
+        res = _gravity_best(
+            off[i], val[i], PA[:k], PB[:k], phi, grav, one_sided=one_sided, val_bounds=val_bounds
+        )
+        if res is None:
+            return None
+        a, b, _ = res
+        PA[k], PB[k] = a, b
+        new_off[i] = a
+        new_val[i] = b
+    return new_off, new_val
 
 
 def _min_shift_position(ai, bi, PA, PB, shape=CIRCLE, one_sided=False):
@@ -343,6 +583,7 @@ def _spine_drop_layout(
     one_sided=False,
     val_bounds=None,
     bin_order="middle-out",
+    gravity=None,
 ):
     """ "Spine over and over": dynamic lowest-lander placement.
 
@@ -369,6 +610,17 @@ def _spine_drop_layout(
         nonlocal k
         if phi is None:
             res = _drop_at_value(off[i], val[i], PA[:k], PB[:k], shape, one_sided)
+        elif gravity is not None:  # circle-only; the gravity generalization of the phi step
+            res = _gravity_best(
+                off[i],
+                val[i],
+                PA[:k],
+                PB[:k],
+                phi,
+                gravity,
+                one_sided=one_sided,
+                val_bounds=val_bounds,
+            )
         else:  # circle-only (validated by ``layout``); D = 1
             res = _phi_best(
                 off[i],
@@ -658,8 +910,8 @@ def _resolve_backend(backend, c_capable):
             raise RuntimeError(msg)
         if not c_capable:
             msg = (
-                "backend='c' has no kernel for this configuration (grid methods and "
-                "phi with non-circle shapes run in Python)"
+                "backend='c' has no kernel for this configuration (grid methods, phi with "
+                "non-circle shapes, and gravity run in Python)"
             )
             raise NotImplementedError(msg)
         return kern
@@ -701,6 +953,7 @@ def layout(
     gap_fraction=0.0,
     shape=CIRCLE,
     backend="auto",
+    gravity=None,
 ):
     """Lay out one collision diameter. Returns (cat_new, val_new, extent) or
     None when some point has no valid position at this size.
@@ -715,7 +968,9 @@ def layout(
     for insetting ``val_frame``, the (lo, hi) value-axis frame that bounds
     phi's value moves. ``shape`` is the mark's collision shape in D units
     (``beeswarm_shapes``; default the unit disk); non-circle shapes support
-    the swarm method without phi. ``backend`` selects the optional C kernel:
+    the swarm method without phi. ``gravity`` (a ``Gravity``) generalizes phi's
+    value moves with a position-dependent price and a density basin; requires
+    phi, circles, and runs in Python. ``backend`` selects the optional C kernel:
     "auto" (default) uses it when present for the configurations it covers,
     "c" insists and raises otherwise, "python" never uses it. Results are the
     same either way (parity-tested); only speed differs.
@@ -723,9 +978,22 @@ def layout(
     cat = np.asarray(cat, dtype=float)
     val = np.asarray(val, dtype=float)
     _validate(method, phi, shape)
+    if gravity is not None:
+        if not isinstance(gravity, Gravity):
+            msg = f"gravity must be a Gravity instance or None, got {type(gravity).__name__}"
+            raise TypeError(msg)
+        if phi is None:
+            msg = "gravity generalizes phi: pass phi as well"
+            raise ValueError(msg)
+        if shape.kind != "circle":
+            msg = "gravity is implemented for circles only"
+            raise NotImplementedError(msg)
     is_spine_drop = isinstance(process_order, str) and process_order == "spine-drop"
     kern = _resolve_backend(
-        backend, c_capable=(method == "swarm" and (shape.kind == "circle" or phi is None))
+        backend,
+        c_capable=(
+            method == "swarm" and (shape.kind == "circle" or phi is None) and gravity is None
+        ),
     )
     a = cat / dx
     b = val / dy
@@ -760,6 +1028,7 @@ def layout(
                 one_sided=one_sided,
                 val_bounds=val_bounds,
                 bin_order=bin_order,
+                gravity=gravity,
             )
             if pair is None:
                 return None
@@ -779,6 +1048,13 @@ def layout(
                 b_new = b
             elif kern is not None:
                 pair = kern.layout_phi(a, b, order, phi, one_sided=one_sided, val_bounds=val_bounds)
+                if pair is None:
+                    return None
+                a_new, b_new = pair
+            elif gravity is not None:
+                pair = _layout_gravity(
+                    a, b, order, phi, gravity, one_sided=one_sided, val_bounds=val_bounds
+                )
                 if pair is None:
                     return None
                 a_new, b_new = pair
