@@ -463,6 +463,24 @@ static int gravity_best(double ai, double bi, int64_t k, const double *PA, const
     double bonus = gp->g * gp->beta * W;
     double delta = sqrt((c0_g + bonus) / phi);
     double Delta = sqrt(c0_g + bonus);
+    if (gp->g > 0.0 && gp->beta > 0.0 && k > 0) {
+        /* lossless window tightening: rho on the window <= sum_j w_j * max_box K_j;
+           two fixed iterations, same arithmetic as _gravity_reference */
+        double inv = 1.0 / (2.0 * gp->sigma * gp->sigma);
+        for (int it = 0; it < 2; it++) {
+            double xlo = one_sided ? ai : ai - Delta, xhi = ai + Delta;
+            double ylo = bi - delta, yhi = bi + delta;
+            double Weff = 0.0;
+            for (int64_t j = 0; j < k; j++) {
+                double dxs = fmax(0.0, fmax(xlo - PA[j], PA[j] - xhi));
+                double dys = fmax(0.0, fmax(ylo - PB[j], PB[j] - yhi));
+                Weff += sc->w[j] * exp(-(dxs * dxs + dys * dys) * inv);
+            }
+            bonus = gp->g * gp->beta * Weff;
+            delta = sqrt((c0_g + bonus) / phi);
+            Delta = sqrt(c0_g + bonus);
+        }
+    }
     /* window marks */
     int mW = 0;
     for (int64_t j = 0; j < k; j++) {

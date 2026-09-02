@@ -414,6 +414,21 @@ def _gravity_reference(ai, bi, PA, PB, phi, grav, one_sided=False):
     bonus = grav.g * grav.beta * W
     delta = np.sqrt((c0_g + bonus) / phi)
     Delta = np.sqrt(c0_g + bonus)
+    if grav.g > 0 and grav.beta > 0 and PA.size:
+        # Lossless tightening (2026-09-02): on the current window, rho <= W_eff =
+        # sum_j w_j * max_{box} K_j, the kernel's maximum over the box, and every
+        # winner lies in the current window, so the W_eff window still contains
+        # it. Two fixed iterations; the C kernel does the same arithmetic.
+        w = np.exp(-np.abs(PA - ai) / grav.lam)
+        inv = 1.0 / (2.0 * grav.sigma * grav.sigma)
+        for _ in range(2):
+            xlo = ai if one_sided else ai - Delta
+            dxs = np.maximum(0.0, np.maximum(xlo - PA, PA - (ai + Delta)))
+            dys = np.maximum(0.0, np.maximum((bi - delta) - PB, PB - (bi + delta)))
+            W_eff = float((w * np.exp(-(dxs * dxs + dys * dys) * inv)).sum())
+            bonus = grav.g * grav.beta * W_eff
+            delta = np.sqrt((c0_g + bonus) / phi)
+            Delta = np.sqrt(c0_g + bonus)
     return best_a, c0_g, delta, Delta, valid0
 
 
