@@ -614,6 +614,56 @@ def _layout_swarm(off, val, order, shape=CIRCLE, one_sided=False):
 
 
 METHODS = ("swarm", "center", "hex", "square")
+BACKENDS = ("auto", "c", "python")
+
+
+def _c_kernel():
+    """The compiled kernel module when it is importable AND already built, else
+    None. Never triggers a build: "auto" must not compile inside a consumer's
+    environment (idd-figures is the first consumer; see beeswarm_c.build)."""
+    try:
+        from idd_figures import beeswarm_c
+    except ImportError:
+        return None
+    return beeswarm_c if beeswarm_c.available() else None
+
+
+def has_fast_backend():
+    """True when the optional C kernel will be used by ``backend="auto"``."""
+    return _c_kernel() is not None
+
+
+def _resolve_backend(backend, c_capable):
+    """Return the kernel module to use, or None for pure Python.
+
+    ``c_capable`` says whether the requested configuration has a C engine at
+    all (today: circle shape, swarm method, precomputed orders, with or
+    without phi). "auto" takes C when both available and capable, else Python
+    silently. "c" raises when the kernel is absent (RuntimeError, with the
+    build instruction) or when the configuration has no C engine
+    (NotImplementedError); it never falls back. "python" always runs Python.
+    """
+    if backend not in BACKENDS:
+        msg = f"backend must be 'auto', 'c', or 'python', got {backend!r}"
+        raise ValueError(msg)
+    if backend == "python":
+        return None
+    kern = _c_kernel()
+    if backend == "c":
+        if kern is None:
+            msg = (
+                "backend='c' requested but the compiled kernel is not available; "
+                "build it with idd_figures.beeswarm_c.build()"
+            )
+            raise RuntimeError(msg)
+        if not c_capable:
+            msg = (
+                "backend='c' has no kernel for this configuration (spine-drop, grid "
+                "methods, and non-circle shapes run in Python)"
+            )
+            raise NotImplementedError(msg)
+        return kern
+    return kern if c_capable else None
 
 
 def _validate(method, phi, shape=CIRCLE):
@@ -650,6 +700,7 @@ def layout(
     val_frame=None,
     gap_fraction=0.0,
     shape=CIRCLE,
+    backend="auto",
 ):
     """Lay out one collision diameter. Returns (cat_new, val_new, extent) or
     None when some point has no valid position at this size.
@@ -664,11 +715,18 @@ def layout(
     for insetting ``val_frame``, the (lo, hi) value-axis frame that bounds
     phi's value moves. ``shape`` is the mark's collision shape in D units
     (``beeswarm_shapes``; default the unit disk); non-circle shapes support
-    the swarm method without phi. Everything else goes to the engines.
+    the swarm method without phi. ``backend`` selects the optional C kernel:
+    "auto" (default) uses it when present for the configurations it covers,
+    "c" insists and raises otherwise, "python" never uses it. Results are the
+    same either way (parity-tested); only speed differs.
     """
     cat = np.asarray(cat, dtype=float)
     val = np.asarray(val, dtype=float)
     _validate(method, phi, shape)
+    is_spine_drop = isinstance(process_order, str) and process_order == "spine-drop"
+    kern = _resolve_backend(
+        backend, c_capable=(method == "swarm" and shape.kind == "circle" and not is_spine_drop)
+    )
     a = cat / dx
     b = val / dy
     r = shape.half_width / (1.0 + gap_fraction)
@@ -678,7 +736,7 @@ def layout(
         val_bounds = (lo + r, hi - r)
 
     if method == "swarm":
-        if isinstance(process_order, str) and process_order == "spine-drop":
+        if is_spine_drop:
             pair = _spine_drop_layout(
                 cat,
                 a,
@@ -698,10 +756,18 @@ def layout(
             else:
                 order = _processing_order(cat, val, process_order)
             if phi is None:
-                a_new = _layout_swarm(a, b, order, shape, one_sided=one_sided)
+                if kern is not None:
+                    a_new = kern.layout_swarm(a, b, order, one_sided=one_sided)
+                else:
+                    a_new = _layout_swarm(a, b, order, shape, one_sided=one_sided)
                 if a_new is None:
                     return None
                 b_new = b
+            elif kern is not None:
+                pair = kern.layout_phi(a, b, order, phi, one_sided=one_sided, val_bounds=val_bounds)
+                if pair is None:
+                    return None
+                a_new, b_new = pair
             else:
                 pair = _layout_phi(
                     a, b, order, 1.0, phi, one_sided=one_sided, val_bounds=val_bounds

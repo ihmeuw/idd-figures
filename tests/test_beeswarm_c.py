@@ -58,3 +58,33 @@ def test_tie_break_matches(C):
 def test_input_validation(C):
     with pytest.raises(ValueError, match="same length"):
         C.layout_swarm(np.zeros(3), np.zeros(2), np.arange(3))
+
+
+class TestDispatchWithKernel:
+    def test_kernel_reported_available(self, C):
+        from idd_figures.beeswarm_core import has_fast_backend
+
+        assert C.available()
+        assert has_fast_backend()
+
+    def test_c_backend_equals_python_through_layout(self, C, anchors):
+        from idd_figures.beeswarm_core import layout
+
+        cat, val = anchors
+        for kw in ({}, {"phi": 2.0}, {"process_order": "middle-out", "phi": 0.7}):
+            c = layout(cat, val, 0.4, 0.5, one_sided=True, backend="c", **kw)
+            py = layout(cat, val, 0.4, 0.5, one_sided=True, backend="python", **kw)
+            assert np.allclose(c[0], py[0], atol=1e-7) and np.allclose(c[1], py[1], atol=1e-7)
+
+    def test_c_backend_refuses_unported_configurations(self, C, anchors):
+        from idd_figures.beeswarm_core import layout
+        from idd_figures.beeswarm_shapes import PolygonShape
+
+        cat, val = anchors
+        square = PolygonShape(np.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]))
+        with pytest.raises(NotImplementedError, match="backend='c'"):
+            layout(cat, val, 0.4, 0.5, shape=square, backend="c")
+        with pytest.raises(NotImplementedError, match="backend='c'"):
+            layout(cat, val, 0.4, 0.5, process_order="spine-drop", backend="c")
+        with pytest.raises(NotImplementedError, match="backend='c'"):
+            layout(cat, val, 0.4, 0.5, method="hex", backend="c")

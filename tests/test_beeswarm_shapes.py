@@ -243,3 +243,47 @@ class TestLayoutsWithShapes:
             layout(cat, val, 0.1, 0.12, shape=sq, phi=1.0)
         with pytest.raises(NotImplementedError, match="circles only"):
             layout(cat, val, 0.1, 0.12, shape=sq, method="hex")
+
+
+class TestCircleViaPolygon:
+    """Correctness anchor: a 64-gon inscribed in the unit-diameter circle must
+    forbid no more than the circle, a circumscribed one no less, and the
+    circumscribed one must agree with the circle to its own excess,
+    1/cos(pi/64) - 1 ~ 0.12%."""
+
+    N_SIDES = 64
+    EXCESS = 1.0 / np.cos(np.pi / 64) - 1.0
+
+    def test_interval_sandwich(self):
+        """K of the circumscribed 64-gon lies between the unit disk and the disk
+        of radius 1 + EXCESS, so its cut at any height must too."""
+        inner = PolygonShape(regular(self.N_SIDES, r=0.5))
+        outer = PolygonShape(regular(self.N_SIDES, r=0.5 / np.cos(np.pi / self.N_SIDES)))
+        R = 1.0 + self.EXCESS
+        for dval in np.linspace(-0.98, 0.98, 41):
+            _, clo, chi = CIRCLE.forbidden([dval])
+            ii, ilo, ihi = inner.forbidden([dval])
+            _oi, olo, ohi = outer.forbidden([dval])
+            if ii.size:
+                assert ilo[0] >= clo[0] - 1e-12 and ihi[0] <= chi[0] + 1e-12
+            assert olo[0] <= clo[0] + 1e-12 and ohi[0] >= chi[0] - 1e-12
+            big = np.sqrt(R * R - dval * dval)
+            assert ohi[0] <= big + 1e-12 and olo[0] >= -big - 1e-12
+
+    def test_metrics_bracket_the_circle(self):
+        outer = PolygonShape(regular(self.N_SIDES, r=0.5 / np.cos(np.pi / self.N_SIDES)))
+        assert 1.0 <= outer.stack_height <= 1.0 + 2 * self.EXCESS + 1e-9
+        assert 1.0 <= outer.half_height <= 1.0 + 2 * self.EXCESS + 1e-9
+        assert 0.5 <= outer.half_width <= 0.5 * (1 + self.EXCESS) + 1e-9
+
+    def test_layout_extent_tracks_the_circle(self):
+        rng = np.random.default_rng(21)
+        cat = rng.integers(0, 2, 80).astype(float)
+        val = rng.normal(size=80)
+        outer = PolygonShape(regular(self.N_SIDES, r=0.5 / np.cos(np.pi / self.N_SIDES)))
+        circ = layout(cat, val, 0.1, 0.12, one_sided=True)
+        poly = layout(cat, val, 0.1, 0.12, one_sided=True, shape=outer)
+        # a 0.12% larger mark cannot pack tighter, and the greedy is stable
+        # enough on this data that the extents stay within a percent
+        assert poly[2] >= circ[2] - 1e-12
+        assert poly[2] <= circ[2] * 1.01

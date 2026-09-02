@@ -135,3 +135,28 @@ class TestFindOptimalSize:
             )
         assert best_d == 0.5
         assert result is not None
+
+
+class TestBackendDispatch:
+    def test_backend_validation(self, anchors):
+        cat, val = anchors
+        with pytest.raises(ValueError, match="backend"):
+            layout(cat, val, 0.08, 0.15, backend="fortran")
+
+    def test_python_backend_is_always_allowed(self, anchors):
+        cat, val = anchors
+        out = layout(cat, val, 0.08, 0.15, backend="python")
+        assert out is not None
+
+    def test_has_fast_backend_is_bool(self):
+        from idd_figures.beeswarm_core import has_fast_backend
+
+        assert has_fast_backend() in (True, False)
+
+    def test_auto_matches_python(self, anchors):
+        """Whatever auto resolves to, results equal the Python engines."""
+        cat, val = anchors
+        for kw in ({}, {"phi": 2.0}, {"process_order": "spine"}):
+            a = layout(cat, val, 0.08, 0.15, one_sided=True, **kw)
+            b = layout(cat, val, 0.08, 0.15, one_sided=True, backend="python", **kw)
+            assert np.allclose(a[0], b[0], atol=1e-9) and np.allclose(a[1], b[1], atol=1e-9)
