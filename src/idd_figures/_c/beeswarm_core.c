@@ -291,3 +291,221 @@ int bs_ellipse_closest(double qx, double qy, double alpha, double beta, double *
     ellipse_closest(qx, qy, alpha, beta, &out2[0], &out2[1]);
     return 0;
 }
+
+/* ---- spine-drop: dynamic lowest-lander placement (mirrors _spine_drop_layout) ---- */
+
+typedef struct { const double *cat, *val; } sort_ctx;
+static sort_ctx g_sort;  /* qsort has no context argument in C99; single-threaded use */
+
+static int cmp_cat_val_idx(const void *pa, const void *pb) {
+    int64_t i = *(const int64_t *)pa, j = *(const int64_t *)pb;
+    if (g_sort.cat[i] < g_sort.cat[j]) return -1;
+    if (g_sort.cat[i] > g_sort.cat[j]) return 1;
+    if (g_sort.val[i] < g_sort.val[j]) return -1;  /* stable argsort within a category */
+    if (g_sort.val[i] > g_sort.val[j]) return 1;
+    return (i < j) ? -1 : (i > j);
+}
+
+static int cmp_int64(const void *a, const void *b) {
+    int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+    return (x < y) ? -1 : (x > y);
+}
+
+typedef struct { double dist, lower; int64_t k; } binkey;
+
+static int cmp_binkey_mid(const void *a, const void *b) {  /* (dist, lower) then k */
+    const binkey *x = a, *y = b;
+    if (x->dist < y->dist) return -1;
+    if (x->dist > y->dist) return 1;
+    if (x->lower < y->lower) return -1;
+    if (x->lower > y->lower) return 1;
+    return (x->k < y->k) ? -1 : (x->k > y->k);
+}
+static int cmp_binkey_asc(const void *a, const void *b) {
+    const binkey *x = a, *y = b; return (x->k < y->k) ? -1 : (x->k > y->k);
+}
+static int cmp_binkey_desc(const void *a, const void *b) { return cmp_binkey_asc(b, a); }
+
+typedef struct {
+    char *cached, *feas;          /* per point: is there a cached evaluation; was it feasible */
+    double *shift, *cost, *a, *b; /* cached key parts and landing */
+    const double *val;            /* third key element */
+} eval_cache;
+
+/* Python key tuple (|shift|, cost, val, i), with (inf,) for infeasible. */
+static int keycmp(const eval_cache *c, int64_t i, int64_t j) {
+    if (!c->feas[i] && !c->feas[j]) return 0;
+    if (!c->feas[i]) return 1;
+    if (!c->feas[j]) return -1;
+    if (c->shift[i] != c->shift[j]) return c->shift[i] < c->shift[j] ? -1 : 1;
+    if (c->cost[i] != c->cost[j]) return c->cost[i] < c->cost[j] ? -1 : 1;
+    if (c->val[i] != c->val[j]) return c->val[i] < c->val[j] ? -1 : 1;
+    return (i < j) ? -1 : (i > j);
+}
+
+typedef struct {
+    const double *off, *val;
+    double *PA, *PB; int64_t k;
+    double phi; int one_sided, has_bounds; double blo, bhi;
+    swarm_scratch ssc; phi_scratch psc;
+} placer;
+
+/* One placement attempt against the currently placed marks. 0 ok, 1 infeasible. */
+static int place_point(placer *P, int64_t i, double *a, double *b, double *cost) {
+    if (P->phi <= 0.0) {
+        double out;
+        if (min_shift_position(P->off[i], P->val[i], (int)P->k, P->PA, P->PB, P->one_sided, &out, &P->ssc))
+            return 1;
+        *a = out; *b = P->val[i]; *cost = (out - P->off[i]) * (out - P->off[i]);
+        return 0;
+    }
+    return phi_best(P->off[i], P->val[i], (int)P->k, P->PA, P->PB, P->phi, P->one_sided,
+                    P->has_bounds, P->blo, P->bhi, a, b, cost, &P->psc);
+}
+
+static void eval_point(placer *P, eval_cache *c, int64_t i) {
+    double a, b, cost;
+    c->cached[i] = 1;
+    if (place_point(P, i, &a, &b, &cost)) { c->feas[i] = 0; return; }
+    c->feas[i] = 1; c->shift[i] = fabs(a - P->off[i]); c->cost[i] = cost; c->a[i] = a; c->b[i] = b;
+}
+
+int bs_spine_drop(int64_t n, const double *cat, const double *off, const double *val,
+                  double phi, int one_sided, int has_bounds, double blo, double bhi,
+                  int bin_order, double *out_a, double *out_b) {
+    const double thresh = 1.0 - TOL;  /* circle stack_height = 1 */
+    int rc = 0;
+    memcpy(out_a, off, n * sizeof(double));
+    memcpy(out_b, val, n * sizeof(double));
+
+    placer P = { off, val, malloc(n * sizeof(double)), malloc(n * sizeof(double)), 0,
+                 phi, one_sided, has_bounds, blo, bhi,
+                 { malloc(n * sizeof(double)), malloc(n * sizeof(double)),
+                   malloc(2 * n * sizeof(double)), malloc(2 * n * sizeof(double)) },
+                 phi_scratch_alloc(n) };
+    int64_t *ord = malloc(n * sizeof(int64_t));
+    int64_t *up = malloc(n * sizeof(int64_t)), *down = malloc(n * sizeof(int64_t));
+    int64_t *spine = malloc(n * sizeof(int64_t)), *spine_sorted = malloc(n * sizeof(int64_t));
+    double *v = malloc(n * sizeof(double)), *sv = malloc(n * sizeof(double));
+    char *in_spine = malloc(n);
+    int64_t *rest = malloc(n * sizeof(int64_t)), *rest_bin = malloc(n * sizeof(int64_t));
+    binkey *keys = malloc((n + 1) * sizeof(binkey));
+    char *seen = malloc((n + 1));
+    int64_t *qids = malloc(n * sizeof(int64_t));
+    int64_t *qstart = malloc((n + 1) * sizeof(int64_t)), *qlen = malloc((n + 1) * sizeof(int64_t));
+    int64_t *qremain = malloc((n + 1) * sizeof(int64_t));
+    char *removed = calloc(n, 1);
+    eval_cache C = { calloc(n, 1), calloc(n, 1), malloc(n * sizeof(double)), malloc(n * sizeof(double)),
+                     malloc(n * sizeof(double)), malloc(n * sizeof(double)), val };
+    int64_t nq = 0, nqids = 0;
+
+    for (int64_t i = 0; i < n; i++) ord[i] = i;
+    g_sort.cat = cat; g_sort.val = val;
+    qsort(ord, n, sizeof(int64_t), cmp_cat_val_idx);
+
+    for (int64_t c0 = 0; c0 < n && !rc;) {
+        int64_t c1 = c0;
+        while (c1 < n && cat[ord[c1]] == cat[ord[c0]]) c1++;
+        const int64_t *srt = ord + c0;
+        int64_t m = c1 - c0, mid = (m - 1) / 2;
+        for (int64_t j = 0; j < m; j++) v[j] = val[srt[j]];
+        /* spine: median, then alternating up / down, points that fit with no shift */
+        int64_t nu = 0, nd = 0;
+        double last = v[mid];
+        for (int64_t j = mid + 1; j < m; j++) if (v[j] - last >= thresh) { up[nu++] = j; last = v[j]; }
+        last = v[mid];
+        for (int64_t j = mid - 1; j >= 0; j--) if (last - v[j] >= thresh) { down[nd++] = j; last = v[j]; }
+        int64_t mm = nu < nd ? nu : nd, ns = 0;
+        spine[ns++] = mid;
+        for (int64_t t = 0; t < mm; t++) { spine[ns++] = up[t]; spine[ns++] = down[t]; }
+        if (nu > mm) for (int64_t t = mm; t < nu; t++) spine[ns++] = up[t];
+        else for (int64_t t = mm; t < nd; t++) spine[ns++] = down[t];
+        for (int64_t t = 0; t < ns && !rc; t++) {  /* spine dots placed first, validated */
+            int64_t i = srt[spine[t]];
+            double a, b, cost;
+            if (place_point(&P, i, &a, &b, &cost)) { rc = 1; break; }
+            P.PA[P.k] = a; P.PB[P.k] = b; P.k++;
+            out_a[i] = a; out_b[i] = b;
+        }
+        if (rc) break;
+        memcpy(spine_sorted, spine, ns * sizeof(int64_t));
+        qsort(spine_sorted, ns, sizeof(int64_t), cmp_int64);
+        for (int64_t t = 0; t < ns; t++) sv[t] = v[spine_sorted[t]];
+        double vm = v[mid];
+        memset(in_spine, 0, m);
+        for (int64_t t = 0; t < ns; t++) in_spine[spine[t]] = 1;
+        int64_t nr = 0;
+        for (int64_t j = 0; j < m; j++) if (!in_spine[j]) rest[nr++] = j;  /* ascending value */
+        if (nr == 0) { c0 = c1; continue; }
+        /* bins: searchsorted(sv, v, side=left) = number of spine values < v */
+        int64_t nk = 0;
+        memset(seen, 0, ns + 1);
+        for (int64_t t = 0; t < nr; t++) {
+            int64_t kk = 0;
+            while (kk < ns && sv[kk] < v[rest[t]]) kk++;
+            rest_bin[t] = kk;
+            if (!seen[kk]) {
+                seen[kk] = 1;
+                binkey b; b.k = kk;
+                if (kk > 0 && kk < ns) {
+                    double d1 = fabs(sv[kk - 1] - vm), d2 = fabs(sv[kk] - vm);
+                    b.dist = d1 > d2 ? d1 : d2; b.lower = sv[kk - 1];
+                } else if (kk == 0) { b.dist = fabs(sv[0] - vm); b.lower = -INFINITY; }
+                else { b.dist = fabs(sv[ns - 1] - vm); b.lower = sv[ns - 1]; }
+                keys[nk++] = b;
+            }
+        }
+        qsort(keys, nk, sizeof(binkey),
+              bin_order == 1 ? cmp_binkey_asc : bin_order == 2 ? cmp_binkey_desc : cmp_binkey_mid);
+        for (int64_t q = 0; q < nk; q++) {  /* one queue per bin, points ascending in value */
+            qstart[nq] = nqids; qlen[nq] = 0;
+            for (int64_t t = 0; t < nr; t++)
+                if (rest_bin[t] == keys[q].k) { qids[nqids++] = srt[rest[t]]; qlen[nq]++; }
+            qremain[nq] = qlen[nq]; nq++;
+        }
+        c0 = c1;
+    }
+
+    /* sweeps: each non-empty bin places its current lowest lander; a cached
+       key is a lower bound (placements only add obstacles), so only the
+       apparent winner is re-evaluated until it still beats the runner-up */
+    while (!rc) {
+        int64_t total = 0;
+        for (int64_t q = 0; q < nq; q++) total += qremain[q];
+        if (total == 0) break;
+        int placed = 0;
+        for (int64_t q = 0; q < nq; q++) {
+            if (qremain[q] == 0) continue;
+            int64_t best = -1, second = -1;
+            for (;;) {
+                for (int64_t t = 0; t < qlen[q]; t++) {
+                    int64_t i = qids[qstart[q] + t];
+                    if (!removed[i] && !C.cached[i]) eval_point(&P, &C, i);
+                }
+                best = -1; second = -1;
+                for (int64_t t = 0; t < qlen[q]; t++) {
+                    int64_t i = qids[qstart[q] + t];
+                    if (removed[i]) continue;
+                    if (best < 0 || keycmp(&C, i, best) < 0) { second = best; best = i; }
+                    else if (second < 0 || keycmp(&C, i, second) < 0) second = i;
+                }
+                eval_point(&P, &C, best);  /* refresh the apparent winner */
+                if (second < 0 || keycmp(&C, best, second) <= 0) break;
+            }
+            if (!C.feas[best]) continue;  /* nothing in this bin can be placed yet */
+            removed[best] = 1; qremain[q]--; C.cached[best] = 0;
+            P.PA[P.k] = C.a[best]; P.PB[P.k] = C.b[best]; P.k++;
+            out_a[best] = C.a[best]; out_b[best] = C.b[best];
+            placed = 1;
+        }
+        if (!placed) rc = 1;  /* some points have no valid position at this size */
+    }
+
+    free(P.PA); free(P.PB); free(P.ssc.L); free(P.ssc.H); free(P.ssc.cands); free(P.ssc.ash);
+    phi_scratch_free(&P.psc);
+    free(ord); free(up); free(down); free(spine); free(spine_sorted); free(v); free(sv);
+    free(in_spine); free(rest); free(rest_bin); free(keys); free(seen); free(qids);
+    free(qstart); free(qlen); free(qremain); free(removed);
+    free(C.cached); free(C.feas); free(C.shift); free(C.cost); free(C.a); free(C.b);
+    return rc;
+}

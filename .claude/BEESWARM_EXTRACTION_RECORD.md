@@ -522,3 +522,61 @@ repo; on Bobby's decision (2026-09-02) this record and the decision render
   circle because every neighbour evaluation cuts 25 Minkowski polygons. With
   15-50 optimizer steps, a decomposed-star plot at n=300 is 5-60 s in
   Python. That is the concrete case for the polygon path in C (Step C).
+
+### B: spine-drop in C (done)
+
+**Built.** `bs_spine_drop` in `_c/beeswarm_core.c` (+~210 lines; kernel now
+511 lines): stable index sort by (category, value, index) via qsort with a
+tie-breaking comparator (equivalent to numpy's stable argsort per category),
+spine construction, bins by searchsorted-left, bin walk orders (middle-out
+by (far-endpoint distance, lower endpoint), ascending, descending), one
+queue per bin, and the lower-bound cache with re-evaluation of the apparent
+winner until it still beats the runner-up's cached key. The Python key tuple
+(|shift|, cost, value, index) with (inf,) for infeasible became a comparator
+over per-point arrays with a feasibility flag. `queue.remove` became a
+removed flag; dicts became arrays indexed by point id. Bridge
+`beeswarm_c.spine_drop`; dispatch now routes spine-drop (with or without
+phi) to C for circles; `backend="c"` no longer refuses it.
+
+**What fought.** Less than expected. The engine is intricate but its state
+is all per-point, so arrays replace every dict and list. The one design
+choice was the winner/runner-up selection: Python re-sorts the whole queue
+each round; C does two linear min scans with the same comparator, which is
+equivalent because the keys are unique (the index is the last tuple
+element). Compiled clean under -Wall -Wextra on the first build; parity was
+exact on the first run.
+
+**Parity (measured).** 18 new parity cases (phi none / 0.7 / 3.0 x two-sided
+/ one-sided x three bin orders) plus dispatch tests: all pass. On the timing
+data below, max |difference| between Python and C layouts = 0.0 for every
+configuration, including spine-drop+phi.
+
+**Speed (measured, same data and figure both backends; 3 categories, 8 x 8 in,
+gap 0.1, two-sided, phi frame-bounded; the setup of the first session's
+33 s baseline). One layout:**
+
+| n | s | path | Python | C | speedup |
+|---|---|---|---|---|---|
+| 100 | 250 | spine-drop | 0.029 s | 0.0028 s | 10x |
+| 100 | 250 | spine-drop + phi=1 | 0.231 s | 0.0042 s | 55x |
+| 300 | 120 | spine-drop | 0.054 s | 0.0033 s | 16x |
+| 300 | 120 | spine-drop + phi=1 | 1.22 s | 0.158 s | 8x |
+| 1000 | 40 | spine-drop | 0.379 s | 0.037 s | 10x |
+| 1000 | 40 | spine-drop + phi=1 | **38.2 s** | **3.19 s** | **12x** |
+
+The 38.2 s row is the same data class as the earlier 33 s baseline (same
+seed sequence, different draw order), so this is a true before/after.
+
+**Per plot (measured, C only, `find_optimal_s`, spine-drop + phi=1, margin
+0.5, s_min=20):** n=300: 2.5 s in 25 iterations. n=1000: 190 s in 50
+iterations (the cap; best_s=23 sits near the floor, the Step 1 flag again).
+Derived Python per plot at n=1000: ~50 x 38 s = ~32 min.
+
+**Reading.** C moves spine-drop+phi at n=1000 from unusable (38 s per
+layout, ~half an hour per plot) to slow-but-usable (3.2 s per layout, ~3
+minutes per plot under the naive 50-step optimizer). At n <= 300 it is
+seconds per plot. The speedup pattern is the same as the other engines:
+55x where interpreter overhead dominates (n=100), ~10x where the O(m^2)
+arithmetic dominates (n=1000). The remaining per-plot factor at n=1000 is
+the outer search (roadmap item 1), which multiplies the C gain rather than
+competing with it.

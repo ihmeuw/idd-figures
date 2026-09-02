@@ -85,6 +85,41 @@ class TestDispatchWithKernel:
         with pytest.raises(NotImplementedError, match="backend='c'"):
             layout(cat, val, 0.4, 0.5, shape=square, backend="c")
         with pytest.raises(NotImplementedError, match="backend='c'"):
-            layout(cat, val, 0.4, 0.5, process_order="spine-drop", backend="c")
-        with pytest.raises(NotImplementedError, match="backend='c'"):
             layout(cat, val, 0.4, 0.5, method="hex", backend="c")
+
+
+@pytest.mark.parametrize("phi", [None, 0.7, 3.0])
+@pytest.mark.parametrize("one_sided", [False, True])
+@pytest.mark.parametrize("bin_order", ["middle-out", "ascending", "descending"])
+def test_spine_drop_matches_python(C, anchors, phi, one_sided, bin_order):
+    from idd_figures.beeswarm_core import _spine_drop_layout
+
+    cat, val = anchors
+    vb = (val.min() + 0.5, val.max() - 0.5) if phi else None
+    py = _spine_drop_layout(
+        cat, cat.copy(), val, phi=phi, one_sided=one_sided, val_bounds=vb, bin_order=bin_order
+    )
+    c = C.spine_drop(
+        cat, cat.copy(), val, phi=phi, one_sided=one_sided, val_bounds=vb, bin_order=bin_order
+    )
+    assert (py is None) == (c is None)
+    tol = 1e-9 if phi is None else 1e-7
+    assert np.allclose(py[0], c[0], rtol=0, atol=tol)
+    assert np.allclose(py[1], c[1], rtol=0, atol=tol)
+
+
+def test_spine_drop_through_layout_dispatch(C, anchors):
+    from idd_figures.beeswarm_core import layout
+
+    cat, val = anchors
+    for kw in ({}, {"phi": 1.0}):
+        c = layout(cat, val, 0.4, 0.5, process_order="spine-drop", backend="c", **kw)
+        py = layout(cat, val, 0.4, 0.5, process_order="spine-drop", backend="python", **kw)
+        assert np.allclose(c[0], py[0], atol=1e-7) and np.allclose(c[1], py[1], atol=1e-7)
+
+
+def test_spine_drop_validation(C):
+    with pytest.raises(ValueError, match="bin_order"):
+        C.spine_drop(np.zeros(3), np.zeros(3), np.arange(3.0), bin_order="sideways")
+    with pytest.raises(ValueError, match="same length"):
+        C.spine_drop(np.zeros(2), np.zeros(3), np.arange(3.0))

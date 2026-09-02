@@ -637,8 +637,8 @@ def _resolve_backend(backend, c_capable):
     """Return the kernel module to use, or None for pure Python.
 
     ``c_capable`` says whether the requested configuration has a C engine at
-    all (today: circle shape, swarm method, precomputed orders, with or
-    without phi). "auto" takes C when both available and capable, else Python
+    all (today: circle shape, swarm method, any order including spine-drop,
+    with or without phi). "auto" takes C when both available and capable, else Python
     silently. "c" raises when the kernel is absent (RuntimeError, with the
     build instruction) or when the configuration has no C engine
     (NotImplementedError); it never falls back. "python" always runs Python.
@@ -658,8 +658,8 @@ def _resolve_backend(backend, c_capable):
             raise RuntimeError(msg)
         if not c_capable:
             msg = (
-                "backend='c' has no kernel for this configuration (spine-drop, grid "
-                "methods, and non-circle shapes run in Python)"
+                "backend='c' has no kernel for this configuration (grid methods and "
+                "non-circle shapes run in Python)"
             )
             raise NotImplementedError(msg)
         return kern
@@ -724,9 +724,7 @@ def layout(
     val = np.asarray(val, dtype=float)
     _validate(method, phi, shape)
     is_spine_drop = isinstance(process_order, str) and process_order == "spine-drop"
-    kern = _resolve_backend(
-        backend, c_capable=(method == "swarm" and shape.kind == "circle" and not is_spine_drop)
-    )
+    kern = _resolve_backend(backend, c_capable=(method == "swarm" and shape.kind == "circle"))
     a = cat / dx
     b = val / dy
     r = shape.half_width / (1.0 + gap_fraction)
@@ -736,7 +734,14 @@ def layout(
         val_bounds = (lo + r, hi - r)
 
     if method == "swarm":
-        if is_spine_drop:
+        if is_spine_drop and kern is not None:
+            pair = kern.spine_drop(
+                cat, a, b, phi=phi, one_sided=one_sided, val_bounds=val_bounds, bin_order=bin_order
+            )
+            if pair is None:
+                return None
+            a_new, b_new = pair
+        elif is_spine_drop:
             pair = _spine_drop_layout(
                 cat,
                 a,

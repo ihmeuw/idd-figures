@@ -79,6 +79,21 @@ def lib():
         ctypes.c_double,
         _F64,
     ]
+    L.bs_spine_drop.restype = ctypes.c_int
+    L.bs_spine_drop.argtypes = [
+        ctypes.c_int64,
+        _F64,
+        _F64,
+        _F64,
+        ctypes.c_double,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_double,
+        ctypes.c_double,
+        ctypes.c_int,
+        _F64,
+        _F64,
+    ]
     L.bs_ellipse_closest.restype = ctypes.c_int
     L.bs_ellipse_closest.argtypes = [
         ctypes.c_double,
@@ -137,5 +152,40 @@ def layout_phi(off, val, order, phi, one_sided=False, val_bounds=None):
     lo, hi = (float(val_bounds[0]), float(val_bounds[1])) if has_b else (0.0, 0.0)
     rc = lib().bs_layout_phi(
         off.size, off, val, order, float(phi), int(one_sided), int(has_b), lo, hi, out_a, out_b
+    )
+    return None if rc else (out_a, out_b)
+
+
+_BIN_ORDER = {"middle-out": 0, "ascending": 1, "descending": 2}
+
+
+def spine_drop(cat, off, val, phi=None, one_sided=False, val_bounds=None, bin_order="middle-out"):
+    """C twin of ``beeswarm_core._spine_drop_layout`` for the circle shape.
+    Returns (new_off, new_val) or None."""
+    if bin_order not in _BIN_ORDER:
+        msg = f"bin_order must be 'middle-out', 'ascending', or 'descending', got {bin_order!r}"
+        raise ValueError(msg)
+    cat = np.ascontiguousarray(cat, dtype=np.float64)
+    off, val, _ = _prep(off, val, np.zeros(len(off), dtype=np.int64))
+    if cat.shape != off.shape:
+        msg = "cat, off, val must have the same length"
+        raise ValueError(msg)
+    out_a = np.empty_like(off)
+    out_b = np.empty_like(val)
+    has_b = val_bounds is not None
+    lo, hi = (float(val_bounds[0]), float(val_bounds[1])) if has_b else (0.0, 0.0)
+    rc = lib().bs_spine_drop(
+        off.size,
+        cat,
+        off,
+        val,
+        float(phi) if phi is not None else -1.0,
+        int(one_sided),
+        int(has_b),
+        lo,
+        hi,
+        _BIN_ORDER[bin_order],
+        out_a,
+        out_b,
     )
     return None if rc else (out_a, out_b)
