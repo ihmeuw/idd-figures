@@ -25,15 +25,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from idd_figures.idd_beeswarm import (
-    SCATTER_LW,
-    TOL_PX,
+from idd_figures.beeswarm_core import (
     _middle_out_order,
     _processing_order,
     _spine_bin_order,
-    idd_beeswarm,
-    position_all_points,
 )
+from idd_figures.idd_beeswarm import SCATTER_LW, idd_beeswarm, position_all_points
+
+TOL_PX = 1e-6  # pixel epsilon for the oracle checks below
 
 N = 60
 S_FIXED = 70.0
@@ -256,3 +255,85 @@ class TestFullPainter:
             idd_beeswarm(df, phi=-1.0, **base)
         with pytest.raises(ValueError, match="phi"):
             idd_beeswarm(df, phi=3.0, method="hex", **base)
+
+
+class TestWrapperHelpers:
+    def test_diameter_size_round_trip(self):
+        from idd_figures.idd_beeswarm import marker_size_from_diameter_px, visual_diameter_px
+
+        for s in (20.0, 70.0, 400.0):
+            d = visual_diameter_px(s, 100.0, GAP)
+            assert np.isclose(marker_size_from_diameter_px(d, 100.0, GAP), s)
+        assert marker_size_from_diameter_px(0.1, 100.0, GAP) == 0.0
+
+    def test_px_per_unit_orient(self, fig_ax):
+        from idd_figures.idd_beeswarm import _px_per_unit
+
+        _fig, ax = fig_ax
+        ux, uy = _px_per_unit(ax, "v")
+        assert _px_per_unit(ax, "h") == (uy, ux)
+        with pytest.raises(ValueError, match="orient"):
+            _px_per_unit(ax, "diagonal")
+
+
+class TestMarkerShapes:
+    def test_marker_vertices_px(self):
+        from idd_figures.beeswarm_shapes import is_convex, signed_area
+        from idd_figures.idd_beeswarm import marker_vertices_px
+
+        sq = marker_vertices_px("s", 100.0, 72.0, linewidth=0.0)
+        assert len(sq) == 4 and np.isclose(
+            abs(signed_area(sq)), 100.0
+        )  # side sqrt(s) points at 72 dpi
+        stroked = marker_vertices_px("s", 100.0, 72.0, linewidth=2.0)
+        assert np.isclose(abs(signed_area(stroked)), 12.0**2)  # side grows by the stroke
+        assert not is_convex(marker_vertices_px("*", 100.0, 100.0))
+        with pytest.raises(ValueError, match="one filled polygon"):
+            marker_vertices_px("+", 100.0, 100.0)
+
+    def test_marker_shape_units(self):
+        from idd_figures.beeswarm_shapes import CIRCLE
+        from idd_figures.idd_beeswarm import marker_shape
+
+        assert marker_shape("o", 70.0, 100.0, GAP) is CIRCLE
+        sq = marker_shape("s", 70.0, 100.0, GAP)
+        # a square marker's stroked, gapped side equals the circle's collision
+        # diameter: D units by construction
+        assert sq.stack_height == pytest.approx(1.0)
+        assert sq.half_width == pytest.approx(0.5)
+        st_hull = marker_shape("*", 70.0, 100.0, GAP)
+        st_dec = marker_shape("*", 70.0, 100.0, GAP, mode="decompose")
+        assert st_hull.n_pieces == 1 and st_dec.n_pieces == 5
+        # orient="h" transposes the outline into (category, value)
+        tri_v = marker_shape("^", 70.0, 100.0, GAP, orient="v")
+        tri_h = marker_shape("^", 70.0, 100.0, GAP, orient="h")
+        assert np.allclose(tri_h.vertices, tri_v.vertices[:, ::-1])
+
+    @pytest.mark.parametrize("marker", ["s", "^", "D", "*"])
+    def test_polygon_markers_never_overlap(self, data, fig_ax, marker):
+        from shapely.geometry import Polygon
+
+        from idd_figures.idd_beeswarm import marker_vertices_px
+
+        pytest.importorskip("shapely")
+        x, y = data
+        fig, ax = fig_ax
+        res, extent = position_all_points(
+            x,
+            y,
+            S_FIXED,
+            GAP,
+            fig,
+            ax,
+            orient="h",
+            one_sided=True,
+            marker=marker,
+            process_order="spine-drop",
+        )
+        assert res is not None and np.isfinite(extent)
+        verts = marker_vertices_px(marker, S_FIXED, fig.dpi)  # visual outline, no gap
+        p = ax.transData.transform(res[["xnew", "ynew"]].to_numpy())
+        polys = [Polygon(verts + c) for c in p]
+        for i in range(len(polys)):
+            for j in range(i + 1, len(polys)):
+                assert polys[i].intersection(polys[j]).area < 1e-6

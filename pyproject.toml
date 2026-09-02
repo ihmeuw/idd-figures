@@ -87,6 +87,15 @@ max-complexity = 15  # explicit tier ladders / realisers sit at 13; flag only re
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["INP001", "T201"]
 "tests/**" = ["S101", "ARG", "S105", "INP001", "PLR2004", "PT018", "SLF001"]
+# Beeswarm core (2026-09-02): geometry in math notation (PA/PB placed arrays, K
+# Minkowski polygon, L/H interval bounds, G Lagrange function) that the C
+# kernel mirrors name-for-name; closures are called within their loop
+# iteration (B023 false positive); the engines' branch counts ARE the
+# algorithm and are parity-tested against C, so no complexity refactor.
+"src/idd_figures/beeswarm_core.py" = ["N806", "N802", "E741", "B023", "C901", "PLR0912", "PLR0915"]
+"src/idd_figures/beeswarm_shapes.py" = ["N806", "N802", "E741", "B023", "C901", "PLR0912"]
+"src/idd_figures/beeswarm_c.py" = ["N806"]
+"tests/test_beeswarm_*.py" = ["N806", "N802", "E741", "B023"]
 "**/__init__.py" = ["ERA001"]  # empty __init__s document the import convention in comments
 
 [tool.mypy]
