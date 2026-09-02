@@ -71,5 +71,9 @@ paths.yaml
 config/*
 !config/.gitkeep
 
-# Claude Code working files — local-only, not part of git history
-.claude/
+# Claude Code working files — local-only, not part of git history, except
+# the beeswarm extraction record and its decision render (2026-09-02):
+# a record that lives in one working copy is a note, not a record.
+.claude/*
+!.claude/BEESWARM_EXTRACTION_RECORD.md
+!.claude/beeswarm_extraction_star_hull_vs_decompose_v2.png
