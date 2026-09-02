@@ -77,3 +77,4 @@ config/*
 .claude/*
 !.claude/BEESWARM_EXTRACTION_RECORD.md
 !.claude/beeswarm_extraction_star_hull_vs_decompose_v2.png
+!.claude/BEESWARM_GRAVITY_RECORD.md
