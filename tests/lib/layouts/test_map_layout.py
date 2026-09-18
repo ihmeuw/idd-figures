@@ -343,6 +343,61 @@ def test_map_facet_per_panel_cbar_ticks_pin_each_bar_independently():
     plt.close(fig)
 
 
+def test_is_per_panel_reads_every_entry_not_just_the_first():
+    from idd_figures.lib.layouts.maps import _is_per_panel
+
+    assert _is_per_panel([[1, 2], [3, 4]])
+    assert _is_per_panel([None, None, [1, 10, 100]])  # first bars pin nothing, last does
+    assert _is_per_panel([[1, 10], None])
+    assert not _is_per_panel([0.2, 1, 10])  # a flat tick list applies to every bar
+    assert not _is_per_panel([None, None])  # nothing pinned anywhere is not per-panel
+    assert not _is_per_panel(None)
+    assert not _is_per_panel([])
+
+
+def test_map_facet_per_panel_cbar_ticks_allow_none_for_unpinned_bars():
+    """A mode="each" row can pin ticks on some bars only: None entries leave the others
+    to matplotlib. Regression: a leading None used to make the whole list read as flat
+    and crash in ``set_ticks``."""
+    import numpy as np
+    from matplotlib.colors import LogNorm
+
+    from idd_figures.lib.geo_fixture import SYNTHETIC_EXTENT, make_synthetic_continents
+    from idd_figures.lib.layouts.maps import map_facet
+
+    gdf = make_synthetic_continents()
+    pinned = [50, 100, 500, 1000, 5000, 10000, 50000]
+    pinned_labels = ["50", "100", "500", "1k", "5k", "10k", "50k"]
+    fig = map_facet(
+        [
+            {
+                "panels": [
+                    {"gdf": gdf, "value_col": "value", "cmap": "viridis", "vmin": 0.0, "vmax": 1.0},
+                    {
+                        "gdf": gdf,
+                        "value_col": "value",
+                        "cmap": "viridis",
+                        "norm": LogNorm(50, 50000),
+                    },
+                ],
+                "extent": SYNTHETIC_EXTENT,
+                "cbar": "each",
+                "cbar_label": ["linear", "GDP"],
+                "cbar_ticks": [None, pinned],
+                "cbar_tick_labels": [None, pinned_labels],
+            }
+        ],
+        fig_width=10,
+        preview=True,
+    )
+    cax1 = fig.axes_by_name["cbar:r0c1"].child_axes[0]
+    assert np.allclose(cax1.get_xticks(), pinned)
+    assert [t.get_text() for t in cax1.get_xticklabels()] == pinned_labels
+    cax0 = fig.axes_by_name["cbar:r0c0"].child_axes[0]
+    assert len(cax0.get_xticks()) > 0  # default ticks, nothing pinned
+    plt.close(fig)
+
+
 def test_map_facet_per_panel_cbar_ticks_reject_shared_and_length_mismatch():
     from matplotlib.colors import LogNorm
 

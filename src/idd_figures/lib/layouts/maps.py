@@ -282,8 +282,18 @@ def _panel_mappable(panel):
 
 
 def _is_per_panel(value):
-    """True when a cbar_ticks/cbar_tick_labels entry is a list-of-lists (one per panel)."""
-    return isinstance(value, (list, tuple)) and bool(value) and isinstance(value[0], (list, tuple))
+    """True when a cbar_ticks/cbar_tick_labels entry is one-per-panel: a list whose entries
+    are each a list (that panel's ticks) or None (no pinned ticks for that panel).
+
+    Checked over every entry, not just the first: a row whose first bars pin nothing
+    and whose last does (``[None, None, [1, 10, 100]]``) is per-panel too.
+    """
+    return (
+        isinstance(value, (list, tuple))
+        and bool(value)
+        and all(v is None or isinstance(v, (list, tuple)) for v in value)
+        and any(isinstance(v, (list, tuple)) for v in value)
+    )
 
 
 def _per_panel_bar_arg(value, k, what):
